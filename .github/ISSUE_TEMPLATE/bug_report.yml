@@ -4,11 +4,11 @@ labels: [bug]
 body:
   - type: input
     id: version
-    attributes: { label: "Plugin version", placeholder: "e.g. 0.2.0" }
+    attributes: { label: "Plugin version", placeholder: "e.g. 0.3.0" }
     validations: { required: true }
   - type: input
     id: env
-    attributes: { label: "Environment", placeholder: "opencode v2.x / python 3.x / OS" }
+    attributes: { label: "Environment", placeholder: "opencode v2.x / python 3.x / Ollaya 0.x / model / OS" }
     validations: { required: true }
   - type: textarea
     id: expected

@@ -9,8 +9,9 @@ python3 -m pytest -q
 ## Checklist
 
 - [ ] Fail-open to ask-human preserved (no silent allow on error)
-- [ ] No secrets in logs or Jev payloads
+- [ ] No secrets in logs or model payloads
 - [ ] Decision-logic change (`decision.py`, `kindFor`) covered by a golden test
+- [ ] Truncation still fail-opens (never a verdict on a truncated state)
 - [ ] Relevant doc updated (README.md, AGENTS.md, docs/ARCHITECTURE.md, docs/TROUBLESHOOTING.md)
 
 Closes #

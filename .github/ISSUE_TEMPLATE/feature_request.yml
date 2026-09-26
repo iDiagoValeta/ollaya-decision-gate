@@ -4,7 +4,7 @@ labels: [enhancement]
 body:
   - type: textarea
     id: problem
-    attributes: { label: "Problem", placeholder: "What decision is Jev getting wrong today?" }
+    attributes: { label: "Problem", placeholder: "What decision is the model getting wrong today?" }
     validations: { required: true }
   - type: textarea
     id: solution
