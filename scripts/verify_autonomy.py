@@ -48,13 +48,17 @@ def resolve_log() -> Path:
 
 LOG = resolve_log()
 TIMEOUT_S = int(os.environ.get("OLLAYA_VERIFY_TIMEOUT", "180"))
+# An isolated `opencode serve` (e.g. one whose config loads only this
+# plugin) instead of the background service.
+SERVER = os.environ.get("OLLAYA_VERIFY_SERVER", "")
 
 
 def api(*args: str) -> str:
     env = os.environ.copy()
     env["PATH"] = "/usr/bin:/bin:/usr/sbin:/sbin:" + env.get("PATH", "")
+    server = ["--server", SERVER] if SERVER else []
     proc = subprocess.run(
-        ["opencode", "api", *args],
+        ["opencode", "api", *server, *args],
         capture_output=True,
         text=True,
         env=env,

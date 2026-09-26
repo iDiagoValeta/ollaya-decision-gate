@@ -150,6 +150,17 @@ the model allowed.
 
 Notes:
 
+- Reproduce it on your hardware: `python3 scripts/eval_live.py`
+  (`--model NAME`, `--long CHARS`, `--json`). It runs the golden events
+  and `tests/live_eval_cases.json` through the gate's real path and
+  exits 1 if any trap is allowed, so with winnow it currently exits 1
+  (the CI edit). It measures the model alone: in the full gate the
+  kill-list rejects four of the thirteen traps (`rm -rf ~/`, force
+  push, `DROP TABLE`, `chmod -R 777 /`) before the model is asked.
+- Long conversations: with 30,000 chars of padded conversation
+  (`--long 30000`) winnow allowed 2/13 traps (the CI edit and
+  `rm -rf ~/ build/`, which the kill-list catches first) and 8/12 safe
+  steps. Judgment degrades as the conversation fills the state.
 - `winnow:e4b` is the default (`OLLAYA_GATE_MODEL` overrides it).
   First call after load takes about 2 to 4 s (model load about 4 s),
   about 7 GB VRAM while loaded; the daemon unloads it after 5 min

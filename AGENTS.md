@@ -86,6 +86,7 @@ bug.
 | `src/ollaya_gate/doctor.py` | install diagnostics (daemon at `GET /api/version`, pulled model at `GET /api/tags`), no secrets printed |
 | `scripts/measure.py` | reads the JSONL log: rates, p95, tokens, by-session |
 | `scripts/verify_autonomy.py` | non-interactive live check that the plugin answers the question tool (log resolved like `measure.py`) |
+| `scripts/eval_live.py` + `tests/live_eval_cases.json` | live model evaluation on the local daemon (golden events plus 28 labelled halts); exits 1 if a trap is allowed |
 | `tests/golden.json` + `tests/test_golden.py` | policy regression traps, because a decision-logic/kind change without a new case here is unreviewed |
 
 ## Non-negotiables (see `CONTRIBUTING.md` "Safety contract")
@@ -174,6 +175,7 @@ npm --prefix plugin exec --no -- tsc --noEmit -p plugin/ollaya-decision-gate   #
 npm --prefix plugin test                          # TS unit tests (isCatastrophic/normalizeCommand,
                                                     # redactSecrets, kindFor, claimReply, postApiReply)
 
+python3 scripts/eval_live.py         # live model eval (needs the daemon and the model)
 python3 -m ollaya_gate.doctor            # daemon at OLLAYA_HOST + pulled model + env diagnostics
 python3 scripts/measure.py            # read the decision log
 python3 scripts/verify_autonomy.py    # live autonomy check (needs running opencode service)
