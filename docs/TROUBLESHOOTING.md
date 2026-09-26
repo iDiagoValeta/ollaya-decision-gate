@@ -130,6 +130,13 @@ seconds (measured 22.9 s for `kev:4b` on CPU, which did not fit 8 GB), and
 the plugin's 25 s gate timeout then fails open to ask-human. Free VRAM, use
 a GPU that fits the model, or pick a smaller model.
 
+The device is chosen when the model loads and kept until it unloads. If
+something else holds the VRAM at that moment (another Ollaya model, a game,
+another inference server), winnow loads on CPU and stays there even after
+the VRAM frees up; seen on 2026-09-27 with jevk5 still loaded. Unload it with
+`ollaya stop winnow:e4b` (or wait for the keep-alive to expire) and the next
+decision loads it on the GPU again.
+
 ## Which opencode, which version
 
 This project only works on the `@opencode/plugin` API line (the one
