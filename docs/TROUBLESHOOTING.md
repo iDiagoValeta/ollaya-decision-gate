@@ -1,16 +1,16 @@
 # Troubleshooting
 
-## `opencode run --auto` bypasses the gate entirely — including the catastrophic kill-list
+## `opencode run --auto` bypasses the gate entirely, including the catastrophic kill-list
 
 **Do not use `--auto` when this gate's decisions are meant to matter.** It is
 not a mitigated risk, it is a hard bypass: `--auto` is documented
 (`opencode run --help`) as "Auto-approve permissions that are not explicitly
-denied" — a **client-side** decision opencode's CLI makes on its own, without
+denied", a **client-side** decision opencode's CLI makes on its own, without
 waiting for `permission.asked` subscribers (this plugin included) to reply.
 Whatever the plugin decides, `--auto` has usually already resolved the
 request by the time the plugin's reply (always at least one subprocess spawn
 plus an HTTP round trip) lands, so the reply 404s and the command runs
-regardless — deny, ask-human, or even the catastrophic-pattern kill-list, all
+regardless: deny, ask-human, or even the catastrophic-pattern kill-list, all
 equally bypassed.
 
 Reproducible with zero real-world risk (e.g. `terraform` not installed, so a
@@ -29,8 +29,8 @@ plugin got the call right:
 {"tool":"shell","gateAction":"reject","reason":"reply-failed","error_class":"... HTTP 404 Not Found","totalElapsedMs":109}
 ```
 
-The reply lands ~100ms after the request (local regex, no network, no Jev
-call) — and it is still too slow, because `--auto` doesn't wait on anything.
+The reply lands ~100ms after the request (local regex, no network, no model
+call) and it is still too slow, because `--auto` doesn't wait on anything.
 This is not fixable by making the plugin's reply faster: `--auto` approves
 before any plugin gets a chance to race it at all.
 
@@ -47,7 +47,7 @@ opencode api POST "/api/session/$sid/prompt" -d '{"text":"Run the shell command:
  "state":{"status":"error","error":{"type":"aborted","message":"The user declined this tool call"}}}
 ```
 
-`executed: false`, no `reply-failed` in the log — the plugin's reject lands
+`executed: false`, no `reply-failed` in the log: the plugin's reject lands
 before the tool runs. Same plugin, same machine, same model; the only
 difference is the absence of `--auto`.
 
@@ -55,12 +55,12 @@ difference is the absence of `--auto`.
 matters, drive the session through the raw API instead of `--auto`:**
 `POST /api/session`, `POST /api/session/{id}/prompt` (body `{"text": "..."}`),
 then poll `GET /api/session/{id}/message` for completion. This behaves like
-an interactive TUI session — the gate has as much time as it needs to reply,
+an interactive TUI session: the gate has as much time as it needs to reply,
 since nothing else resolves the permission first.
 
-## "It never asks Jev, I always get the manual prompt"
+## "It never asks the model, I always get the manual prompt"
 
-That IS the fail-open design — but find out why:
+That IS the fail-open design, but find out why:
 
 ```bash
 python3 -m ollaya_gate.doctor      # "log writable (<path>)" is the log the plugin writes
@@ -70,26 +70,79 @@ tail -5 <that path>
 
 | Symptom in log | Cause | Fix |
 | -------------- | ----- | --- |
-| `reason: fail-open, error_class: missing-key` | no API key | `export TYPESAFE_API_KEY=...` (must be set in the *service's* env — see below) |
-| `error_class: transport` / `missing-sdk` | `typesafe-sdk` missing on the Python the plugin spawns (often the service's `/usr/bin/python3`) | `pip install -e .` into that env, or set `pythonBin` / `OLLAYA_GATE_PYTHON` to a mise/user interpreter (plugin also auto-detects mise and sets `PYTHONPATH=src`) |
-| `error_class: gate timeout` | Jev slow / offline | raise `timeoutMs` (max 30000) |
-| no log lines at all, `permission: "allow"` in config | no `permission.asked` fires at all when the ambient mode is already `allow` — nothing to intercept | set `"permission": "ask"` (global or project config); that's what lets the gate substitute Jev for the human in the first place |
+| `reason: fail-open, error_class: transport` with `ollaya-unreachable` in `error_detail` | Ollaya daemon not running | start it: `ollaya serve` (see the dedicated entry below) |
+| `reason: fail-open, error_class: transport` with `http-404 MODEL_NOT_FOUND` in `error_detail` | the model is not pulled | `ollaya pull winnow:e4b` (or your `OLLAYA_GATE_MODEL`); there are no implicit pulls |
+| `error_class: state-truncated` | conversation too dense for the state window, even at the smallest budget | lower `objectiveChars` / `OLLAYA_GATE_OBJECTIVE_CHARS` (see the dedicated entry below) |
+| `error_class: gate timeout` | model slow / daemon busy | raise `timeoutMs` (max 30000); see "Decisions take seconds" |
+| no log lines at all, `permission: "allow"` in config | no `permission.asked` fires at all when the ambient mode is already `allow`, nothing to intercept | set `"permission": "ask"` (global or project config); that's what lets the gate substitute the model for the human in the first place |
 | no log lines at all, `permission: "ask"` already set | hook never fired for another reason | check `opencode debug config` resolves your plugin path; re-check with `python3 -m ollaya_gate.doctor` |
 | `reason: catastrophic-pattern` | command matched kill-list | intended: rewrite the command |
+
+## Every decision fails open with `error_class: transport`
+
+The gate could not reach the Ollaya daemon. The `error_detail` tells the two
+apart:
+
+- `ollaya-unreachable: ...`: the daemon is down. Start it with `ollaya serve`
+  (or the systemd service the installer creates with sudo).
+- `http-404 MODEL_NOT_FOUND`: the daemon is up but the model is not pulled.
+  Pull it with `ollaya pull winnow:e4b` (or whatever `OLLAYA_GATE_MODEL`
+  names). Ollaya does no implicit pulls, so a missing model is a 404 on
+  every decision.
+
+Run `python3 -m ollaya_gate.doctor`: it checks the daemon with
+`GET /api/version` and that the model is pulled with `GET /api/tags`, and
+prints the resolved `ollaya pull` hint on failure. Any other HTTP status
+also maps to `transport` (`http-<code> <CODE>: <message>`).
+
+## `error_class: state-truncated`
+
+The conversation is too dense for the model's state window even at the
+smallest budget of `STATE_BUDGETS` (22000, 12000, 6000 chars). `winnow:e4b`
+reads at most 6,144 state tokens; a 22k-char conversational objective
+measured 5,254 tokens, but code and non-English text are denser, so 6k
+chars can still overflow.
+
+This is the gate refusing to judge, by design: `cli.py` only retries with a
+smaller budget on `state-truncated`, a truncated state is never judged, and
+when the last budget is still truncated the decision falls to your manual
+prompt. Lowering `objectiveChars` does not help here (the last budget already
+caps the whole state at 6,000 chars); it only happens when the halt detail
+itself is that dense, for example a large minified or binary-looking
+payload. Answer the prompt yourself.
+
+## First decision after idle is slow
+
+Loading the model takes about 4 s, so the first call after load takes 2 to
+4 s. By default the daemon unloads the model after 5 min idle
+(`OLLAYA_KEEP_ALIVE` on the daemon). To keep it resident, set
+`OLLAYA_KEEP_ALIVE` on the daemon or `OLLAYA_GATE_KEEP_ALIVE` per request
+(the plugin passes it through). The plugin's gate timeout is 25 s by
+default (max 30000 via `timeoutMs`), so a load spike does not by itself fail
+the call.
+
+## Decisions take seconds
+
+The model is running on CPU, or swapping against VRAM. Run `ollaya ps` and
+read the DEVICE column: `CPU` means the model does not fit the GPU. A 4B
+model needs about 7 GB VRAM; on smaller GPUs or CPU-only machines latency is
+seconds (measured 22.9 s for `kev:4b` on CPU, which did not fit 8 GB), and
+the plugin's 25 s gate timeout then fails open to ask-human. Free VRAM, use
+a GPU that fits the model, or pick a smaller model.
 
 ## Which opencode, which version
 
 This project only works on the `@opencode/plugin` API line (the one
-with `permission.asked` events) — installed as plain `opencode`,
+with `permission.asked` events), installed as plain `opencode`,
 currently tracking 2.0.x (`anomalyco/opencode` on GitHub; same repo
 that also ships the older, much more widely-used `@opencode-ai/plugin`
-line under the same `opencode` name at 1.18.x — two parallel plugin
+line under the same `opencode` name at 1.18.x: two parallel plugin
 API generations in one project, not two separate products). Run
 `python3 -m ollaya_gate.doctor`, which reports the resolved version and
 whether it looks like the 2.x line.
 
 **Do not rely on the 1.18.x line for this gate.** Its `permission.ask`
-plugin hook is dead code — a plugin registering it loads cleanly and
+plugin hook is dead code: a plugin registering it loads cleanly and
 simply never gets consulted, which is *worse* than the 2.x line's known
 issues because there is no error to notice. If a future `opencode`
 release finally fixes that and you want to port this gate to
@@ -100,22 +153,22 @@ release finally fixes that and you want to port this gate to
 **Community v1 plugins on the 2.x line:** before removing a v1-only
 plugin, check whether its package ships a *native* v2 build under an
 alternate export subpath (`npm view <pkg> exports` and `main` is the
-fast way to check) — no `/v2`-shaped alternate export means there's
+fast way to check): no `/v2`-shaped alternate export means there's
 nothing native to point at, and the plugin should be removed from
-config rather than left erroring. A hand-written v1→v2 compatibility
+config rather than left erroring. A hand-written v1 to v2 compatibility
 shim is deliberately avoided for auth plugins in particular: a shim bug
 in a credential flow is a much worse failure mode than the plugin
 simply not loading.
 
 **"It worked on an older opencode 2.x, breaks on the newest one":** the
 `@opencode/plugin` SDK package (npm, pinned in `plugin/package.json`)
-and the `opencode` CLI binary are versioned independently — a newer
+and the `opencode` CLI binary are versioned independently: a newer
 CLI can ship a `permission.asked`/`ctx.session.context` shape the
 pinned SDK types don't match, or vice versa. Before filing a bug,
 capture the exact runtime version (`opencode --version`) next to the
 SDK version, and downgrade via the *direct* installer
 (`curl -fsSL https://opencode.ai/v2/install | bash -s -- --version <old>`)
-rather than `opencode upgrade <version>` — that command always targets
+rather than `opencode upgrade <version>`: that command always targets
 the single canonical `~/.opencode/bin/opencode`, so if you ever run it
 from a renamed/copied binary meant to preserve an old version
 side-by-side, it silently overwrites the *canonical* install instead,
@@ -124,17 +177,15 @@ different name to "pin" a version.
 
 Global `~/.config/opencode/opencode.json`:
 
-- `plugin` — 1.18.x-line plugins (npm names / git specs)
-- `plugins` — 2.x-line plugins, this gate among them, as
-  `{package, options}` objects. Put the API key in `TYPESAFE_API_KEY`
-  (e.g. `~/.config/opencode/secrets.env`, sourced from `.zshrc`), not
-  in JSON. That source line only runs in an *interactive* shell — a
-  background `opencode service start` launched from a non-interactive
-  script/session won't have the key unless you source it first in that
-  same shell before starting the service.
+- `plugin` holds 1.18.x-line plugins (npm names / git specs).
+- `plugins` holds 2.x-line plugins, this gate among them, as
+  `{package, options}` objects. The gate needs the Ollaya daemon running
+  and the model pulled; no API key is required. An optional
+  `OLLAYA_API_KEY` is sent as `Authorization: Bearer` if the daemon sits
+  behind a proxy.
 
-Anything else in that config — other `instructions` entries, other
-plugins in either list — belongs to whatever else you've installed
+Anything else in that config (other `instructions` entries, other
+plugins in either list) belongs to whatever else you've installed
 globally, not to this gate. Check `plugin/README.md` before assuming an
 unfamiliar line came from here.
 
@@ -143,13 +194,13 @@ unfamiliar line came from here.
 The question tool is answered two ways, in order:
 
 1. **In-process (preferred).** The plugin wraps the `question` tool's
-   `execute`. Jev evaluates the offered options and returns a pick; the
-   wrapped tool returns that pick as the tool result directly — no form,
-   no reply API, works in any opencode server. Log lines show
+   `execute`. The model evaluates the offered options and returns a pick;
+   the wrapped tool returns that pick as the tool result directly: no
+   form, no reply API, works in any opencode server. Log lines show
    `phase: "question-tool"`, `reason: "question-answered"`.
-2. **Form fallback.** If Jev can't answer (ask-human, pick not offered,
-   ambiguous, no options), the original `execute` runs and opens the
-   human-facing **form** (`metadata.kind=question`), listed at
+2. **Form fallback.** If the model can't answer (ask-human, pick not
+   offered, ambiguous, no options), the original `execute` runs and opens
+   the human-facing **form** (`metadata.kind=question`), listed at
    `GET /api/form`. On 2.0.x the question tool always goes through a
    form when unanswered in-process, not a dedicated `/api/question`
    surface. The plugin polls `/api/form` (and also listens for
@@ -158,34 +209,34 @@ The question tool is answered two ways, in order:
    allow+valid pick POSTs
    `opencode api POST /api/session/{sessionID}/form/{formID}/reply`
    with body `{"answer":{"q0":"<pick>"}}`. Log shows
-   `phase: "form-answer"` then `reason: "question-answered"`. If Jev
-   returns ask-human / invalid pick / reply failure, the form stays
+   `phase: "form-answer"` then `reason: "question-answered"`. If the
+   model returns ask-human / invalid pick / reply failure, the form stays
    pending, logged, and the human answers in the TUI.
 
 Separately, `permission.asked` for `action === "question"` is always a
-passthrough allow with **no** `ctx.session.context` and **no** Jev call
-(`reason: "question-permission-passthrough"`) — this only unlocks the
+passthrough allow with **no** `ctx.session.context` and **no** model call
+(`reason: "question-permission-passthrough"`): this only unlocks the
 tool call; it never answers the question itself.
 
 **Field-level behavior on the form path:**
 
 - `multiselect` fields are answered with an **array** of the picked
   option values, not a string: `{"answer":{"q0":["pizza","sushi"]}}`.
-  Jev returns a single pick today, so the array normally has one
-  element; if a future Jev version returns a list of picks, each one is
+  The model returns a single pick today, so the array normally has one
+  element; if a future model version returns a list of picks, each one is
   mapped to its option value and the array grows accordingly.
 - `hidden: true` fields are never answered. A field with
   `when: [{key, op: "eq"|"neq", value}]` is answered only when **all**
   conditions hold against the answers already decided for earlier
-  fields, compared with `===` (no coercion — a numeric `value` won't
+  fields, compared with `===` (no coercion: a numeric `value` won't
   match a string answer, which is the safe direction). An
   unreferenced `key` counts as unanswered: `eq` is false, `neq` is
-  true. A not-visible field is **omitted from the reply entirely** —
+  true. A not-visible field is **omitted from the reply entirely**:
   the server 400s on a reply that includes a field whose `when`
   isn't satisfied.
 - A visible field with **no options and a non-multiselect type**
-  (boolean / number / free-string) can't be answered by a pick — Jev
-  is not called for it. If it's not `required` it's skipped and the
+  (boolean / number / free-string) can't be answered by a pick: the
+  model is not called for it. If it's not `required` it's skipped and the
   rest of the form is still auto-answered; if it is `required` the
   whole form stays pending for the human.
 
@@ -193,19 +244,19 @@ tool call; it never answers the question itself.
 
 Every early exit while walking a form's fields logs a line with
 `tool: "question"`, `requestID` = formID, `fieldKey`, and one
-distinct `reason` (all `gateAction: "ask-human"` — the field/form
+distinct `reason` (all `gateAction: "ask-human"`: the field/form
 stays pending for the human):
 
 | reason | meaning |
 | ------ | ------- |
 | `form-field-hidden` | conditional field not visible (skipped; form continues) |
 | `form-unsupported-field` | visible, no options, non-multiselect type; includes `required` (skipped if false, aborts the form if true) |
-| `form-model-not-allow` | Jev didn't `allow`, or returned no / empty / non-string pick |
+| `form-model-not-allow` | the model didn't `allow`, or returned no / empty / non-string pick |
 | `form-pick-not-offered` | pick not among the offered labels |
 | `form-pick-ambiguous` | `valueForPick`/`encodeAnswer` resolved to null (labels collide after redaction/truncation) or several picks landed on a single-select field |
 
 If a question hangs with no click available: confirm the permission
-phase logged `question-permission-passthrough` (no Jev call on that
+phase logged `question-permission-passthrough` (no model call on that
 requestID), then check whether the in-process wrap or the form path
 logged anything at all for the question; no log line at all for a
 given form usually means its project directory never registered with
@@ -214,7 +265,7 @@ the answering logic itself. `scripts/verify_autonomy.py` automates a
 non-interactive check of this whole path against a running service.
 
 **Repro:** `permission: "ask"` (required, see above), plugin enabled,
-API key loaded in the service's own environment. Open a TUI session in
+Ollaya daemon running with the model pulled. Open a TUI session in
 a test directory and send: "Hazme una pregunta multiopción: qué
 cenamos hoy. Opciones exactamente: pizza, sushi, ensalada. Usa la
 herramienta de pregunta del sistema y espera mi respuesta." Success:
@@ -244,7 +295,7 @@ timing issue.
 A bare `reject` reply aborts the agent's whole turn ("The user
 declined this tool call"). The `evaluate` hook's deny always carries a
 `message` (`Blocked by ollaya-decision-gate: ...` for the kill-list,
-`Denied by ollaya-decision-gate (Jev): ...` for Jev), so only that tool
+`Denied by ollaya-decision-gate: ...` for the model), so only that tool
 call fails, and the agent sees why and continues. If you see
 `aborted` after a deny, check the log for `hook-unavailable`: you are
 on the reply fallback, where a bare reject is possible.
@@ -266,7 +317,7 @@ noticeable idle CPU with no active session.
 module): the first `setup()` instance starts it, the rest only
 register, the last cleanup stops it, and at most one tick runs at a
 time. If you see one poll process per project directory instead of one
-per opencode process, the shared state is not actually being shared —
+per opencode process, the shared state is not actually being shared:
 check it lives on `globalThis`, not in module scope.
 
 The bare `GET /api/form` only lists the service's own directory
@@ -275,10 +326,10 @@ project directory explicitly via
 `GET /api/form?location[directory]=<dir>`. A question form in a
 project that is never auto-answered (no `phase: form-answer` line at
 all, not even ask-human) means its directory never registered with the
-poller — check the service actually has that project open.
+poller: check the service actually has that project open.
 
 On the form path, a losing cross-instance claim logs nothing at all
-(not even `duplicate-suppressed`) — with many sibling instances racing
+(not even `duplicate-suppressed`): with many sibling instances racing
 every form, losing is the expected outcome and not worth a log row.
 `duplicate-suppressed` in the log means the permission (fallback) path
 only. `scripts/measure.py` excludes it from rates either way.
@@ -287,7 +338,7 @@ only. `scripts/measure.py` excludes it from rates either way.
 
 The plugin answers the `question` tool inside the tool call by default:
 log lines with `phase: "question-tool"` and `reason: "question-answered"`,
-and no form is created at all. If Jev can't answer (for example a
+and no form is created at all. If the model can't answer (for example a
 free-text question has no options, logged as `form-unsupported-field`),
 the normal form opens for the human, and the form path deliberately
 stays silent for it.
@@ -299,7 +350,7 @@ Canonical: the path in `logFile` / `OLLAYA_GATE_LOG`, default
 order: `--log` flag (if given), then `OLLAYA_GATE_LOG` env, then
 `logFile` from `~/.config/opencode/opencode.json` (looks in the
 `plugins` array for an object whose `package` contains
-`ollaya-decision-gate` and uses `options.logFile` if present — tolerates
+`ollaya-decision-gate` and uses `options.logFile` if present: tolerates
 a missing file or invalid JSON and falls through). The first source
 found is the only one read; the `decisions-plugin.jsonl` /
 `decisions.jsonl` cwd files are read only when none is configured. The
@@ -312,12 +363,6 @@ log the plugin writes (`OLLAYA_GATE_LOG`, else config `logFile`, else
 not truncate the production log; it saves the log's byte size at start
 (or 0 if absent) and in its poll loop reads only new bytes via
 `open("rb").seek(offset).read().decode()`.
-
-## Key hygiene
-
-Prefer env (`TYPESAFE_API_KEY`) over `typesafeKey` in JSON (which sits
-in cleartext on disk). The key is never logged; `doctor` only prints
-whether it is set.
 
 ## Still stuck?
 
