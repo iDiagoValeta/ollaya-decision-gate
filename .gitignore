@@ -15,7 +15,7 @@ coverage/
 htmlcov/
 decisions*.jsonl
 .ollaya-gate-replied/
-# Personal/project notes for Jev (see load_user_notes in schemas.py) — local
+# Personal/project notes for the model (see load_user_notes in schemas.py), local
 # only: a malicious PR must never be able to smuggle in fake "always allow"
 # notes by committing this file.
 .ollaya-notes.md

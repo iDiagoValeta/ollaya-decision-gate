@@ -31,7 +31,7 @@ jobs:
       # --severity-level medium: skips this codebase's known, reasoned LOW
       # findings (try/except/pass fail-open pattern, doctor.py's fixed-
       # argument subprocess calls with no shell=True, the doctor.py
-      # self-test assert) — same call already made for ruff's bandit
+      # self-test assert): same call already made for ruff's bandit
       # rules in pyproject.toml. A real medium/high finding still fails.
       - run: bandit -r src scripts --severity-level medium
   ts:
