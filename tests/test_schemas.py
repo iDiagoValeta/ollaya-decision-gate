@@ -144,7 +144,7 @@ def test_load_user_notes_returns_empty_strings_when_nothing_configured(tmp_path)
 
 def test_load_user_notes_is_safe_when_the_notes_path_is_a_directory(tmp_path):
     # Defensive: a stray directory at the expected file path (e.g. a typo
-    # during setup) must degrade to "no notes", not crash the whole gate —
+    # during setup) must degrade to "no notes", not crash the whole gate,
     # same fail-open spirit as every other I/O boundary in this file.
     from ollaya_gate.schemas import load_user_notes
     home = tmp_path / "home"
@@ -193,7 +193,7 @@ def test_redact_secrets_redacts_cli_flag_credentials_issue_63():
 
 def test_redact_secrets_leaves_non_secret_flags_and_prose_untouched_issue_63():
     # -p means port/directory elsewhere, and bare prose keywords carry
-    # no value — none of these may change.
+    # no value, none of these may change.
     from ollaya_gate.schemas import redact_secrets
     for text in [
         "ssh -p 2222 host",
@@ -208,7 +208,7 @@ def test_redact_secrets_stays_linear_on_adversarial_cli_flag_input():
     # Locks in the round-11 rule for the new shapes: underscore-dense
     # input (`a_` * N hung the first nested-star version) and
     # keyword-dense input with no separator (`PASSWORD` * N hung even
-    # the pre-existing key=value pattern — 38s — before its flanking
+    # the pre-existing key=value pattern (38s) before its flanking
     # runs were bounded to 56).
     import time
     from ollaya_gate.schemas import redact_secrets

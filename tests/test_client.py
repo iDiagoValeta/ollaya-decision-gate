@@ -3,7 +3,7 @@ def test_evaluate_normalizes_answers():
 
     def fake_transport(state, questions, model):
         return {
-            "model": "jev-1.13.0",
+            "model": "stub-model",
             "answers": {
                 "decision": {"type": "choice", "choice": "allow", "confidence": 0.9},
                 "safe": {"type": "noul", "noul": 0.95},
@@ -14,7 +14,7 @@ def test_evaluate_normalizes_answers():
     out = evaluate({"objective": "x"}, {"decision": {}}, transport=fake_transport)
     assert out["decision"] == {"choice": "allow", "confidence": 0.9}
     assert out["safe"] == {"noul": 0.95}
-    assert out["model"] == "jev-1.13.0"
+    assert out["model"] == "stub-model"
 
 
 def test_evaluate_raises_on_transport_error():
@@ -35,7 +35,7 @@ def test_evaluate_wraps_malformed_answers_as_bad_response():
     from ollaya_gate.client import GateCallError, evaluate
 
     def missing_keys_transport(state, questions, model):
-        return {"model": "jev-1.13.0", "answers": {"decision": {"choice": "allow"}}}
+        return {"model": "stub-model", "answers": {"decision": {"choice": "allow"}}}
 
     with pytest.raises(GateCallError, match="bad-response"):
         evaluate({"objective": "x"}, {"decision": {}}, transport=missing_keys_transport)
@@ -48,7 +48,7 @@ def test_evaluate_wraps_non_numeric_confidence_as_bad_response():
 
     def bad_confidence_transport(state, questions, model):
         return {
-            "model": "jev-1.13.0",
+            "model": "stub-model",
             "answers": {
                 "decision": {"choice": "allow", "confidence": "not-a-number"},
                 "safe": {"noul": 0.95},
@@ -74,7 +74,7 @@ def test_evaluate_wraps_non_finite_confidence_as_bad_response():
 
         def bad_transport(state, questions, model, bad=bad):
             return {
-                "model": "jev-1.13.0",
+                "model": "stub-model",
                 "answers": {
                     "decision": {"choice": "allow", "confidence": bad},
                     "safe": {"noul": 0.95},
@@ -94,7 +94,7 @@ def test_evaluate_returns_pick_when_present():
 
     def fake_transport(state, questions, model):
         return {
-            "model": "jev-1.13.0",
+            "model": "stub-model",
             "answers": {
                 "decision": {"type": "choice", "choice": "allow", "confidence": 0.9},
                 "safe": {"type": "noul", "noul": 0.95},

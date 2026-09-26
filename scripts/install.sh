@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# install.sh — one-command installer for ollaya-decision-gate.
-# Usage: ./scripts/install.sh [--global|--project] [--log-file PATH] [--key-env]
+# install.sh: one-command installer for ollaya-decision-gate.
+# Usage: ./scripts/install.sh [--global|--project] [--log-file PATH]
 set -euo pipefail
 
 SCOPE="--project"
@@ -60,7 +60,7 @@ except json.JSONDecodeError as e:
     # the pip/npm installs already done above it.
     print(f"ERROR: {config_path} is not valid JSON ({e}). If it has comments "
           "or trailing commas, this installer can't merge into it "
-          "automatically — add this to its \"plugins\" array by hand:\n"
+          "automatically: add this to its \"plugins\" array by hand:\n"
           f'  {{"package": {json.dumps(plugin_pkg)}, '
           f'"options": {{"logFile": {json.dumps(log_file)}}}}}',
           file=sys.stderr)
@@ -74,7 +74,7 @@ cfg["plugins"] = plugins
 if "permission" not in cfg:
     cfg["permission"] = "ask"
 elif cfg["permission"] != "ask":
-    print(f"WARN: permission is {cfg['permission']!r}, not left alone — "
+    print(f"WARN: permission is {cfg['permission']!r}, not left alone: "
           "the gate needs \"permission\": \"ask\" to receive permission.asked "
           "events at all; set it yourself if you want the gate to do anything.",
           file=sys.stderr)

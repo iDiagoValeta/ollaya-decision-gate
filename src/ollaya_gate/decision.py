@@ -1,16 +1,16 @@
 # src/ollaya_gate/decision.py
-"""Jev decides, no thresholds.
+"""The model decides, no thresholds.
 
-The winning action is whatever Jev's `decision` answer says, whatever
-its confidence. allow executes, deny blocks, ask-human falls back to
-the manual prompt. The safe/risk answers are asked for as
+The winning action is whatever the model's `decision` answer says,
+whatever its confidence. allow executes, deny blocks, ask-human falls
+back to the manual prompt. The safe/risk answers are asked for as
 context, not used as vetoes.
 
 Two invariants stay (they are not thresholds):
 - Unknown decision strings degrade to ask-human (invalid output must
   never execute).
 - Errors anywhere degrade to ask-human/fail-open (see cli.py).
-- Catastrophic shell patterns never reach Jev (see plugin).
+- Catastrophic shell patterns never reach the model (see plugin).
 """
 
 

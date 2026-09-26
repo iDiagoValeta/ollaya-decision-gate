@@ -49,7 +49,7 @@ def test_multichoice_pick_recorded_on_allow():
             "safe": {"noul": 0.2},
             "risk": {"score": 1.9, "confidence": 0.9},
             "pick": {"choice": "b"},
-            "model": "jev-1.13.0",
+            "model": "stub-model",
         }
 
     event = {
@@ -86,7 +86,7 @@ def test_redact_secrets_closes_security_review_gaps():
     # Raw JWT with no Bearer prefix.
     jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PYE0Kr8VF5Nk"
     assert redact_secrets(jwt) == "[REDACTED-JWT]"
-    # Credentials embedded in a connection-string URL — password redacted,
+    # Credentials embedded in a connection-string URL: password redacted,
     # scheme/user/host/port/path kept visible for debugging context.
     assert redact_secrets("postgresql://admin:hunter2VerySecret@db.internal:5432/prod") == \
         "postgresql://admin:[REDACTED]@db.internal:5432/prod"
@@ -123,7 +123,7 @@ def test_sha256_hex_survives_a_lone_utf16_surrogate():
     # ordinary, non-adversarial text. The default strict "utf-8" codec
     # raised UnicodeEncodeError here, which build_state() surfaced only
     # as a generic fail-open "exception" and which _write_log_entry's
-    # blanket except silently swallowed — dropping that log line with
+    # blanket except silently swallowed, dropping that log line with
     # zero trace. Must not raise.
     from ollaya_gate.schemas import sha256_hex
     lone_surrogate = "x" * 10 + "\ud83d"  # high surrogate with no low pair
@@ -152,8 +152,8 @@ def test_decide_event_and_log_entry_survive_a_lone_surrogate_in_detail(tmp_path,
 
     error_box = {}
     out = decide_event(event, fake_evaluate, error_box)
-    # The real Jev decision must come through — not a spurious fail-open
-    # caused by the hash blowing up before Jev is even called.
+    # The real model decision must come through, not a spurious fail-open
+    # caused by the hash blowing up before the model is even called.
     assert out["action"] == "allow" and out["reason"] == "model-allow"
     assert error_box == {}
 
@@ -265,10 +265,10 @@ def test_main_logs_error_class_on_fail_open(tmp_path, monkeypatch):
 
 def test_main_logs_error_detail_alongside_error_class_on_fail_open(tmp_path, monkeypatch):
     # Live-observed tonight: "transport" fail-opens under heavy concurrent
-    # load (several opencode sessions hitting Jev at once) with no way to
-    # tell rate-limit from a dropped connection from an API-side bug,
-    # because _classify_error's bucket name is all the log ever kept —
-    # the actual exception message client.py's GateCallError wraps was
+    # load (several opencode sessions calling the model at once) with no way
+    # to tell rate-limit from a dropped connection from an API-side bug,
+    # because _classify_error's bucket name is all the log ever kept, the
+    # actual exception message client.py's GateCallError wraps was
     # discarded before it reached the log. error_class alone answers "did
     # it fail", error_detail is what makes a repeat diagnosable without
     # reproducing it live again.
@@ -279,7 +279,7 @@ def test_main_logs_error_detail_alongside_error_class_on_fail_open(tmp_path, mon
     from ollaya_gate.cli import main
 
     def bad(state, questions, model):
-        raise RuntimeError("Connection reset by peer while calling TypeSafe API")
+        raise RuntimeError("Connection reset by peer while calling the model")
 
     log = tmp_path / "log.jsonl"
     monkeypatch.setenv("OLLAYA_GATE_LOG", str(log))
@@ -291,7 +291,7 @@ def test_main_logs_error_detail_alongside_error_class_on_fail_open(tmp_path, mon
     main()
     row = json.loads(log.read_text().strip())
     assert row["error_class"] == "exception"
-    assert row["error_detail"] == "Connection reset by peer while calling TypeSafe API"
+    assert row["error_detail"] == "Connection reset by peer while calling the model"
 
 
 def test_error_detail_is_redacted_and_capped(tmp_path, monkeypatch):

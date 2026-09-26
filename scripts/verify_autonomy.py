@@ -2,7 +2,7 @@
 """Non-interactive autonomy check against a running opencode service.
 
 Unlike `opencode run` (which auto-rejects permissions when --auto is off,
-and auto-approves them when --auto is on — racing the plugin), this script
+and auto-approves them when --auto is on, racing the plugin), this script
 prompts a session and deliberately does NOT reply to permission.asked.
 The ollaya-decision-gate plugin must own allow/deny and question answers.
 
@@ -99,7 +99,7 @@ def main() -> int:
     except Exception as exc:
         print(f"warn: model switch skipped: {exc}")
 
-    # Prompt — do NOT subscribe as a competing permission handler.
+    # Prompt: do NOT subscribe as a competing permission handler.
     try:
         api(
             "POST",

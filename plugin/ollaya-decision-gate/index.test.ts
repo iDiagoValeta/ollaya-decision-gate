@@ -130,7 +130,7 @@ test("isCatastrophic: does not hang on a long adversarial string", () => {
   const result = isCatastrophic(adversarial)
   const elapsedMs = Date.now() - t0
   assert.ok(elapsedMs < 500, `isCatastrophic took ${elapsedMs}ms on adversarial input, expected < 500ms`)
-  assert.equal(result, false) // no real target anywhere in the junk — must not false-positive either
+  assert.equal(result, false) // no real target anywhere in the junk: must not false-positive either
 })
 
 test("isCatastrophic: a target hidden behind or between padding is still caught", () => {
@@ -177,7 +177,7 @@ test("isCatastrophic: ordinary subpath deletes are NOT caught (no false positive
 
 test("redactSecrets: strips bearer tokens and key=value secrets", () => {
   assert.equal(redactSecrets("Authorization: Bearer sk-abcdEFGH12345678"), "Authorization: [REDACTED]")
-  assert.equal(redactSecrets("TYPESAFE_API_KEY=abcd1234efgh5678"), "TYPESAFE_API_KEY=[REDACTED]")
+  assert.equal(redactSecrets("MY_API_KEY=abcd1234efgh5678"), "MY_API_KEY=[REDACTED]")
   assert.equal(redactSecrets("nothing sensitive here"), "nothing sensitive here")
 })
 
@@ -310,7 +310,7 @@ test("claimReply: the marker directory existing as a plain file reports error (n
   try {
     fs.writeFileSync(path.join(gateDir, ".ollaya-gate-replied"), "")
     assert.equal(claimReply({ gateDir }, "req-A", "instA"), "error")
-    // A DIFFERENT requestID must also report "error", not "lost" — if this
+    // A DIFFERENT requestID must also report "error", not "lost": if this
     // were ever "lost", it would wrongly imply requestID A actually holds
     // the claim, when the marker mechanism itself is just broken.
     assert.equal(claimReply({ gateDir }, "req-B", "instB"), "error")
@@ -428,7 +428,7 @@ test("fieldVisible: when neq holds when the referenced answer differs or is unan
   assert.equal(fieldVisible(field, { q0: "pizza" }), false)
 })
 
-test("fieldVisible: when conditions are ANDed — one unmet condition hides the field", () => {
+test("fieldVisible: when conditions are ANDed, one unmet condition hides the field", () => {
   const field = {
     key: "q3",
     when: [
@@ -521,7 +521,7 @@ test("handleOne: a synchronous spawn() throw (e.g. a NUL byte in options.logFile
   // spawnGate's spawn() call throws SYNCHRONOUSLY, not via a rejected
   // promise, on an invalid env value. If that throw escaped handleOne's
   // own try block, it would skip every log() call in this function
-  // and only be caught by setup()'s bare event-loop catch — no log, and
+  // and only be caught by setup()'s bare event-loop catch: no log, and
   // a false repliedOk:true that blocks any future retry for the same
   // requestID.
   const gateDir = fs.mkdtempSync(path.join(os.tmpdir(), "ollaya-handleone-"))
@@ -547,7 +547,7 @@ test("handleOne: a synchronous spawn() throw (e.g. a NUL byte in options.logFile
 
 test("spawnGate's cancel(): a child that ignores SIGTERM is still killed, via the same SIGKILL backstop the timeout path already has", async () => {
   // cancel() (called from handleOne when objectiveFor detects the session
-  // ended) sends SIGTERM and needs its own backstop — like the timeout
+  // ended) sends SIGTERM and needs its own backstop, like the timeout
   // path a few lines above it in spawnGate, which escalates to SIGKILL
   // after 2s if the child doesn't die. A child that ignores/misses SIGTERM
   // (installed its own handler, scheduling hiccup) would otherwise leak
@@ -608,7 +608,7 @@ test("spawnGate's cancel(): a child that ignores SIGTERM is still killed, via th
 })
 
 test("setup: schedules a periodic prune of the on-disk reply-marker directory, not just once at startup", async () => {
-  // pruneReplied() must run periodically, not just once at setup() — a
+  // pruneReplied() must run periodically, not just once at setup(): a
   // long-running opencode host (days/weeks, setup() never re-invoked)
   // would otherwise accumulate one marker file per permission/form
   // forever (5000 claimReply calls means 5000 unpruned files). It gets
@@ -707,10 +707,10 @@ test("setup: event-stream form path resolves a form id that only lives at the ou
   // falls back to the outer payload's .id when the nested form object
   // lacks one (fid = form.id ?? payload.id, a few lines above); it must
   // hand handleFormAsked that resolved object, not the unchanged nested
-  // one — otherwise a form whose id only lived at the outer level hits
+  // one, otherwise a form whose id only lived at the outer level hits
   // handleFormAsked's own missing-ids early return, claiming nothing on
   // disk (claimReply never
-  // ran), while formSeen was already marked — permanently foreclosing the
+  // ran), while formSeen was already marked, permanently foreclosing the
   // poll path's own retry for a form nothing ever actually processed.
   const gateDir = fs.mkdtempSync(path.join(os.tmpdir(), "ollaya-formid-mismatch-"))
   try {
@@ -721,7 +721,7 @@ test("setup: event-stream form path resolves a form id that only lives at the ou
         subscribe: async function* () {
           if (!emitted) {
             emitted = true
-            // id lives only at properties.id, not inside properties.form —
+            // id lives only at properties.id, not inside properties.form:
             // sessionID lives inside form (isolates the id mismatch from
             // any speculation about sessionID's own shape).
             yield {
@@ -735,7 +735,7 @@ test("setup: event-stream form path resolves a form id that only lives at the ou
         // sessionIsEnded runs right after claimReply inside
         // handleFormAsked; making it report "ended" short-circuits the
         // function immediately afterward, without spawning the real gate
-        // subprocess — claimReply's marker file is the only observable
+        // subprocess: claimReply's marker file is the only observable
         // this test needs.
         get: async () => {
           throw new Error("Session sess-r14 not found")
@@ -760,7 +760,7 @@ test("setup: event-stream form path resolves a form id that only lives at the ou
 
 test("textOfMessage: extracts assistant text from the real opencode 2.0.x message shape", () => {
   // SessionMessageAssistant (the installed @opencode/client's real type)
-  // has neither .text nor .parts — text lives in content[].text for
+  // has neither .text nor .parts: text lives in content[].text for
   // "text"/"reasoning" items. Without this, every assistant turn would
   // silently vanish from OBJECTIVE (verified end-to-end via handleOne: the
   // gate would see only the user's messages, never anything the agent
@@ -832,7 +832,7 @@ test("subagentDetailFor: fails open to null (caller keeps the original thin reso
   assert.equal(await subagentDetailFor(throws, "sess1", { messageID: "msg_1", id: "call_1" }), null)
 })
 
-test("handleOne: subagent dispatch sends Jev the real description/prompt, not just the thin \"general\" agent-name resource (without it, resKinds is just \"text:7ch\", the exact length of \"general\", with no way for Jev to judge what the subagent would actually do)", async () => {
+test("handleOne: subagent dispatch sends the model the real description/prompt, not just the thin \"general\" agent-name resource (without it, resKinds is just \"text:7ch\", the exact length of \"general\", with no way for the model to judge what the subagent would actually do)", async () => {
   const gateDir = fs.mkdtempSync(path.join(os.tmpdir(), "ollaya-subagent-enrich-"))
   const capturedEventPath = path.join(gateDir, "captured-event.json")
   const fakePython = path.join(gateDir, "fake_python.py")
@@ -899,7 +899,7 @@ test("handleOne: subagent dispatch sends Jev the real description/prompt, not ju
   }
 })
 
-test("handleOne: a subagent permission with no `source` (or a lookup that finds nothing) still evaluates, using the original thin resources — enrichment is additive, never a new failure mode", async () => {
+test("handleOne: a subagent permission with no `source` (or a lookup that finds nothing) still evaluates, using the original thin resources: enrichment is additive, never a new failure mode", async () => {
   const gateDir = fs.mkdtempSync(path.join(os.tmpdir(), "ollaya-subagent-no-source-"))
   const capturedEventPath = path.join(gateDir, "captured-event.json")
   const fakePython = path.join(gateDir, "fake_python.py")
@@ -928,7 +928,7 @@ test("handleOne: a subagent permission with no `source` (or a lookup that finds 
   }
 })
 
-test("timeoutMsOf: default is 25000ms, not 15000ms — production log showed p99=9295ms/max=13140ms for successful calls even without contention, and 11 real timeouts clustered exactly where several sessions ran concurrently", () => {
+test("timeoutMsOf: default is 25000ms, not 15000ms: production log showed p99=9295ms/max=13140ms for successful calls even without contention, and 11 real timeouts clustered exactly where several sessions ran concurrently", () => {
   const origMs = process.env.OLLAYA_GATE_TIMEOUT_MS
   const origLegacy = process.env.OLLAYA_GATE_TIMEOUT
   delete process.env.OLLAYA_GATE_TIMEOUT_MS
@@ -965,7 +965,7 @@ test("timeoutMsOf: options.timeoutMs and the env vars still override the default
 test("handleOne: error_detail from the python gate's JSON is logged alongside error_class, not just the bucket name", async () => {
   // Companion to the Python-side fix: _classify_error only ever gave the
   // log a bucket name ("transport"), discarding the actual exception
-  // message — live-observed tonight, multiple "transport" fail-opens
+  // message: live-observed tonight, multiple "transport" fail-opens
   // under concurrent load with no way to tell rate-limit from a dropped
   // connection from an API-side bug without reproducing it live again.
   const gateDir = fs.mkdtempSync(path.join(os.tmpdir(), "ollaya-error-detail-"))
@@ -995,7 +995,7 @@ test("handleOne: error_detail from the python gate's JSON is logged alongside er
 
 test("redactSecrets: redacts CLI-flag credentials but keeps the flag/user visible", () => {
   // Secrets passed as CLI flag values, not KEY=VALUE. Mirrors the
-  // Python-side test in tests/test_schemas.py — both layers must agree.
+  // Python-side test in tests/test_schemas.py; both layers must agree.
   const pw = "SuperSecretPw123"
   const cases: Array<[string, string]> = [
     [`curl -u admin:${pw} http://x`, "curl -u admin:[REDACTED] http://x"],
@@ -1023,7 +1023,7 @@ test("redactSecrets: redacts CLI-flag credentials but keeps the flag/user visibl
 
 test("redactSecrets: leaves non-secret flags and prose untouched", () => {
   // -p means port/directory outside mysql/docker-login, and bare prose
-  // keywords carry no value — none of these may change.
+  // keywords carry no value, none of these may change.
   for (const input of [
     "ssh -p 2222 host",
     "mkdir -p a/b",
@@ -1046,7 +1046,7 @@ test("redactSecrets: stays linear on adversarial CLI-flag input", () => {
   }
 })
 
-test("redactSecrets: redacts quoted values (double/single quotes) in KEY=VALUE, KEY VALUE, JSON/YAML, and CLI flags — issue #77", () => {
+test("redactSecrets: redacts quoted values (double/single quotes) in KEY=VALUE, KEY VALUE, JSON/YAML, and CLI flags, issue #77", () => {
   // Quoted secret values must be redacted in both layers. Mirrors the
   // Python-side test in tests/test_schemas.py.
   const cases: Array<[string, string]> = [
@@ -1089,7 +1089,7 @@ test("redactSecrets: redacts quoted values (double/single quotes) in KEY=VALUE, 
   }
 })
 
-test("handleOne: a fail-open never spawns notify-send/zenity — the desktop-popup feature was removed, not just defaulted off", async () => {
+test("handleOne: a fail-open never spawns notify-send/zenity: the desktop-popup feature was removed, not just defaulted off", async () => {
   // Regression guard for the removal itself, at the real integration
   // point (handleOne's catch-all fail-open), not just "the deleted
   // function doesn't exist". If a future change reintroduces a desktop
@@ -1480,7 +1480,7 @@ test("editPatchesOf: collects each file's patch under a header; null when absent
   assert.equal(out, "--- patch for a.ts ---\n+x\n--- patch for b.ts ---\n-y")
 })
 
-test("evaluatePermission: an edit's patch reaches Jev's detail, redacted", async () => {
+test("evaluatePermission: an edit's patch reaches the model's detail, redacted", async () => {
   let sent: Record<string, unknown> | null = null
   const deps: EvaluateDeps = {
     runGate: async (_o, ev) => {
@@ -1588,7 +1588,7 @@ test("shared poller: registering two instances starts a single interval; clearin
   }
 })
 
-test("handleFormAsked: a losing claim logs nothing — it is the expected cross-instance outcome, not an event", async () => {
+test("handleFormAsked: a losing claim logs nothing: it is the expected cross-instance outcome, not an event", async () => {
   const gateDir = fs.mkdtempSync(path.join(os.tmpdir(), "ollaya-formlost-"))
   try {
     const logs: Record<string, unknown>[] = []
@@ -1660,7 +1660,7 @@ test("answerQuestionsWithModel: ask-human, unoffered or ambiguous picks fall bac
   }
 })
 
-test("answerQuestionsWithModel: a question with no options never calls Jev", async () => {
+test("answerQuestionsWithModel: a question with no options never calls the model", async () => {
   const f = fakeQuestionDeps([])
   const out = await answerQuestionsWithModel(f.deps, "s", "m:c", { questions: [{ question: "free text?" }] })
   assert.equal(out, null)
@@ -1668,7 +1668,7 @@ test("answerQuestionsWithModel: a question with no options never calls Jev", asy
   assert.equal(f.logs[0]?.reason, "form-unsupported-field")
 })
 
-test("answerQuestionsWithModel: Jev sees redacted labels but the answer is the original label", async () => {
+test("answerQuestionsWithModel: the model sees redacted labels but the answer is the original label", async () => {
   const f = fakeQuestionDeps([{ action: "allow", pick: "use token=[REDACTED]" }])
   const out = await answerQuestionsWithModel(f.deps, "s", "m:c", { questions: [{ question: "q", options: [{ label: "use token=abcd1234" }, { label: "none" }] }] })
   assert.deepEqual(out, [["use token=abcd1234"]])
@@ -1712,7 +1712,7 @@ test("clipHeadTail: short text unchanged, long text keeps head and tail within l
   assert.ok(!/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/.test(emoji))
 })
 
-test("evaluatePermission: payload after long padding reaches Jev, with a truncation hint", async () => {
+test("evaluatePermission: payload after long padding reaches the model, with a truncation hint", async () => {
   let seen: any = null
   const deps: EvaluateDeps = {
     runGate: async (_o: unknown, ev: unknown) => { seen = ev; return { decision: { action: "ask-human", reason: "r" }, retried: false } },
@@ -1738,7 +1738,7 @@ test("evaluatePermission: payload after long padding reaches Jev, with a truncat
   assert.ok(String(seen.context.risk_hints).includes("middle omitted"))
 })
 
-test("evaluatePermission: a request over MAX_SCANNED_CHARS goes to the human, never to Jev or allow", async () => {
+test("evaluatePermission: a request over MAX_SCANNED_CHARS goes to the human, never to the model or allow", async () => {
   const logs: Record<string, unknown>[] = []
   let gateCalls = 0
   const deps = {
@@ -1775,14 +1775,14 @@ test("redactSecrets: a quoted value stops at its closing quote, and quote-dense 
   }
 })
 
-test("answerQuestionsWithModel: logs Jev's token usage with the decision", async () => {
+test("answerQuestionsWithModel: logs the model's token usage with the decision", async () => {
   const f = fakeQuestionDeps([{ action: "allow", pick: "pera", usage: { input_tokens: 1234 } }])
   await answerQuestionsWithModel(f.deps, "s", "m:c", { questions: [{ question: "q1", options: [{ label: "manzana" }, { label: "pera" }] }] })
   const row = f.logs.find((l) => l.gateAction === "allow" && l.pick === "pera")
   assert.deepEqual(row?.usage, { input_tokens: 1234 })
 })
 
-test("evaluatePermission: logs Jev's token usage, and omits it when absent", async () => {
+test("evaluatePermission: logs the model's token usage, and omits it when absent", async () => {
   for (const usage of [{ input_tokens: 987 }, undefined]) {
     const logs: Record<string, unknown>[] = []
     const deps = {
