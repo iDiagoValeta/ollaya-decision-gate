@@ -144,7 +144,8 @@ bug.
    budget of `STATE_BUDGETS` and fail-opens to ask-human if the last
    budget is still truncated. Any change to state budgets, the
    decide endpoint, or truncation handling must preserve this:
-   truncated input is retried smaller or ask-human, never a verdict.
+   truncated input is retried smaller or ask-human, never a verdict. Ollaya 0.7.2 fixed `/v1`
+   (ollaya-dev/ollaya#16); keep `/api/decide` anyway so 0.7.1 stays safe.
 
 ## Finish on main, nowhere else
 
