@@ -8,7 +8,7 @@ def test_decide_event_allows_with_fake_evaluate():
             "decision": {"choice": "allow", "confidence": 0.92},
             "safe": {"noul": 0.95},
             "risk": {"score": 0.1, "confidence": 0.8},
-            "model": "jev-1.13.0",
+            "model": "stub-model",
         }
 
     event = {
@@ -19,7 +19,7 @@ def test_decide_event_allows_with_fake_evaluate():
     }
     out = decide_event(event, fake_evaluate)
     assert out["action"] == "allow"
-    assert out["model"] == "jev-1.13.0"
+    assert out["model"] == "stub-model"
 
 
 def test_decide_event_fail_open_on_error():
@@ -55,7 +55,7 @@ def test_decide_event_uses_model_pick_on_allow():
             "safe": {"noul": 0.95},
             "risk": {"score": 0.1, "confidence": 0.8},
             "pick": {"choice": "b"},
-            "model": "jev-1.13.0",
+            "model": "stub-model",
         }
 
     event = {
@@ -77,7 +77,7 @@ def test_decide_event_fail_open_when_pick_missing():
             "decision": {"choice": "allow", "confidence": 0.92},
             "safe": {"noul": 0.95},
             "risk": {"score": 0.1, "confidence": 0.8},
-            "model": "jev-1.13.0",
+            "model": "stub-model",
         }
 
     event = {
@@ -100,7 +100,7 @@ def test_decide_event_fail_open_when_pick_invalid():
             "safe": {"noul": 0.95},
             "risk": {"score": 0.1, "confidence": 0.8},
             "pick": {"choice": "zzz"},
-            "model": "jev-1.13.0",
+            "model": "stub-model",
         }
 
     event = {
@@ -125,7 +125,7 @@ def test_decide_event_pick_ignored_on_deny_even_with_options():
             "safe": {"noul": 0.1},
             "risk": {"score": 0.9, "confidence": 0.8},
             "pick": {"choice": "b"},
-            "model": "jev-1.13.0",
+            "model": "stub-model",
         }
 
     event = {
@@ -148,7 +148,7 @@ def test_decide_event_non_dict_pick_fails_open_not_crashes():
             "safe": {"noul": 0.95},
             "risk": {"score": 0.1, "confidence": 0.8},
             "pick": "not-a-dict",
-            "model": "jev-1.13.0",
+            "model": "stub-model",
         }
 
     event = {
@@ -208,7 +208,7 @@ def _allow_result():
         "decision": {"choice": "allow", "confidence": 0.92},
         "safe": {"noul": 0.95},
         "risk": {"score": 0.1, "confidence": 0.8},
-        "model": "jev-1.13.0",
+        "model": "stub-model",
     }
 
 

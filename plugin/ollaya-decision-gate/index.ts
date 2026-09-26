@@ -5,7 +5,7 @@ import fs from "node:fs"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
 
-// Catastrophic patterns: rejected instantly without calling Jev.
+// Catastrophic patterns: rejected instantly without calling the model.
 // Checked against a NORMALIZED command string (lowercased, quotes/
 // separators collapsed) so trivial obfuscation does not bypass them.
 //
@@ -13,12 +13,12 @@ import { fileURLToPath } from "node:url"
 // was added, widened by backslash-stripping): stripping quotes/backslashes
 // to defeat obfuscation also means descriptive text that merely MENTIONS a
 // dangerous command inside quotes can normalize into something that matches
-// — e.g. `echo "talk about rm -rf / here"` or `echo "rm -r\f / in docs"`
+// e.g. `echo "talk about rm -rf / here"` or `echo "rm -r\f / in docs"`
 // both normalize to a string containing `rm -rf /`. This fails closed (the
 // command is rejected, not silently allowed) so it's a usability cost, not
 // a security hole, and there is no narrower fix available: restricting
 // backslash-stripping to avoid this would reopen the r\m obfuscation bypass
-// it exists to close (confirmed — `r\m` has a backslash between two
+// it exists to close (confirmed: `r\m` has a backslash between two
 // letters, same shape as the false-positive case). A real shell parser
 // could tell prose from syntax; a regex-based kill-list can't.
 const CATASTROPHIC = [
@@ -50,8 +50,8 @@ const CATASTROPHIC = [
 const DESTRUCTIVE_HINT = /(^|\s)(rm\s+-rf|sudo|git\s+push|git\s+reset\s+--hard|git\s+clean\s+-fd?|kubectl\s+delete|terraform\s+(apply|destroy)|npm\s+publish|cargo\s+publish|drop\s+(table|database)|curl|wget|docker\s+(rm|system)|aws\s+s3)/i
 
 // Command substitution ($(...) or `...`) can hide a command's real effect
-// from both the kill-list and normalizeCommand (neither evaluates it) —
-// not blockable by regex, so it's surfaced to Jev as a hint instead.
+// from both the kill-list and normalizeCommand (neither evaluates it),
+// not blockable by regex, so it's surfaced to the model as a hint instead.
 const COMMAND_SUBSTITUTION = /\$\(|`/
 
 const SECRET_PATTERNS: RegExp[] = [
@@ -83,7 +83,7 @@ export function normalizeCommand(text: string): string {
 // Call it on already-redacted text, so a secret split by the cut is never
 // half-matched by the redaction patterns. Slices by code point.
 export const OMITTED_MARK = "[... middle omitted by ollaya-decision-gate ...]"
-// Matches schemas.py BRIEF_BUDGETS[0]: the Python side does the final fit.
+// TS-side pre-clip before send: schemas.py STATE_BUDGETS does the final fit.
 const DETAIL_MAX_CHARS = 90000
 export function clipHeadTail(text: string, limit: number): string {
   const cps = Array.from(text)
@@ -99,14 +99,14 @@ export function redactSecrets(text: string): string {
     re.lastIndex = 0
     out = out.replace(re, "[REDACTED]")
   }
-  // scheme://user:PASSWORD@host — redact only the password, keep the
+  // scheme://user:PASSWORD@host: redact only the password, keep the
   // rest (host/port/path) visible for debugging context. Scheme repetition
   // is bounded to 20 (real schemes are a handful of chars): an unbounded
   // `*` here is O(n^2) on long input with no "://" anywhere, since the
   // engine retries a greedy-then-backtrack search from every position.
   out = out.replace(/([a-zA-Z][a-zA-Z0-9+.-]{0,20}:\/\/[^\s/:@]+):([^\s/@]{1,})@/g, "$1:[REDACTED]@")
   // Keyword may be embedded in a longer identifier (AWS_SECRET_ACCESS_KEY=...),
-  // not just stand alone (password=...) — the keyword can appear anywhere
+  // not just stand alone (password=...); the keyword can appear anywhere
   // in the token, not only at its start. The flanking runs are bounded
   // to 56: unbounded stars here are O(n^2) on keyword-dense input with no
   // "=" anywhere, since each mid-string keyword match re-scans an O(n)
@@ -120,7 +120,7 @@ export function redactSecrets(text: string): string {
   )
   // Secrets passed as CLI flag values rather than KEY=VALUE. Every
   // repetition below is bounded, for the same O(n^2) reason as above.
-  // curl -u/--user user:pass — keep the user, redact only the password.
+  // curl -u/--user user:pass (keep the user, redact only the password).
   // Password can be unquoted ([^\s'"`]{1,200}), double-quoted ("[^"\n]{1,200}"),
   // or single-quoted ('[^'\n]{1,200}'). Quoted values may contain spaces.
   out = out.replace(
@@ -136,7 +136,7 @@ export function redactSecrets(text: string): string {
   )
   // VAR VALUE with no "=" (env-style: PGPASSWORD hunter2, or
   // `aws configure set aws_secret_access_key hunter2`). The name must be
-  // env-var-shaped — ALL-CAPS or containing an underscore — so prose like
+  // env-var-shaped (ALL-CAPS or containing an underscore), so prose like
   // `fix password reset flow` or `grep -r token src/` is untouched.
   // Value can be unquoted ([^\s'"`]{4,200}), double-quoted ("[^"\n]{1,200}"),
   // or single-quoted ('[^'\n]{1,200}'). Quoted values may contain spaces.
@@ -145,7 +145,7 @@ export function redactSecrets(text: string): string {
   // stars in the regex, which is O(n^2) on underscore-dense input.
   // Overlapping candidates (`set aws_secret_access_key VALUE`: the
   // rejected `set ...` pair must not swallow the real token) rule out a
-  // plain replace() — hence the manual scan, which advances one char on
+  // plain replace(); hence the manual scan, which advances one char on
   // reject (bounded re-scan, still O(n) overall).
   const pairRe = /\b([A-Za-z0-9_]{1,64})\s+(?:("([^"\n]{1,200})")|('([^'\n]{1,200})')|([^\s'"`]{4,200}))/g
   let scanned = ""
@@ -283,7 +283,7 @@ function repoRoot(options: Record<string, unknown>): string {
 // session with no self-heal. The likely driver is the sequential
 // event-loop (see docs/ARCHITECTURE.md, "documented as an accepted
 // limitation") queueing several sessions' permissions behind one
-// another, or upstream API-side latency under real load — neither
+// another, or upstream API-side latency under real load: neither
 // interpreter-spawn nor CPU contention among gate subprocesses explains
 // it (an isolated concurrent-spawn test showed no such contention).
 // 25000 gives headroom over observed p99 while staying under the
@@ -335,19 +335,19 @@ function logLine(options: Record<string, unknown>, entry: Record<string, unknown
 // Cross-instance request claim: setup() may run more than once per
 // process (and several processes may share a gateDir), so in-memory
 // maps alone cannot guarantee a single evaluation/reply. First
-// claimant wins via an exclusive marker file, claimed before the Jev
+// claimant wins via an exclusive marker file, claimed before the model
 // call; losers skip evaluating entirely.
 function repliedDirOf(options: Record<string, unknown>): string {
   return path.join(repoRoot(options), ".ollaya-gate-replied")
 }
 
 // Returns "won" (evaluate and reply now), "lost" (someone else owns
-// it) or "error" (marker unusable — evaluate anyway, never suppress on
+// it) or "error" (marker unusable: evaluate anyway, never suppress on
 // FS trouble).
 export function claimReply(options: Record<string, unknown>, requestID: string, inst: string): "won" | "lost" | "error" {
   // Length-bound the fast path too, not just the charset: an all-alnum
   // requestID over Linux's 255-byte NAME_MAX hits ENAMETOOLONG on the
-  // write below, which lands in the shared catch as generic "error" —
+  // write below, which lands in the shared catch as generic "error",
   // if that happened for both racing claimants it would silently reopen
   // the exact double-evaluation race this function exists to close.
   // sha256Hex's fixed 64-char output is always safe.
@@ -357,13 +357,13 @@ export function claimReply(options: Record<string, unknown>, requestID: string, 
     fs.mkdirSync(dir, { recursive: true })
   } catch {
     // The marker directory path itself is unusable (e.g. a plain file
-    // sitting where the directory should be) — a broken marker
+    // sitting where the directory should be): a broken marker
     // mechanism, never a legitimate claim conflict. Must not be
     // reported as "lost" (which means "someone
     // else owns it" and, applied here, would permanently ask-human
     // every single permission/form forever, logged as the misleading
-    // "duplicate-suppressed" — implying a race with a live second
-    // instance, not a broken path — with no self-healing since
+    // "duplicate-suppressed", implying a race with a live second
+    // instance, not a broken path, with no self-healing since
     // pruneReplied's own readdirSync on the same broken path also fails
     // silently). "error" correctly means "evaluate anyway" instead.
     return "error"
@@ -385,10 +385,10 @@ export function claimReply(options: Record<string, unknown>, requestID: string, 
 // before each insert, is a simpler and lower-risk circuit breaker than
 // retrofitting per-entry timestamps through every signature that
 // touches these maps. There is no cross-request race (the event loop is
-// sequential — see the ADR on that in docs/ARCHITECTURE.md — and
+// sequential (see the ADR on that in docs/ARCHITECTURE.md) and
 // inFlight itself is never capped), but clearing `resolved` early CAN
 // drop the cached entry a late duplicate permission.asked would use to
-// retry a reply that had failed — that duplicate falls through to
+// retry a reply that had failed: that duplicate falls through to
 // duplicate-suppressed instead of retrying. Not a lost or silently-wrong
 // decision: the original reply-failed entry is already in the log with
 // its own error_class/error_detail, so the record survives either way.
@@ -418,17 +418,17 @@ function pruneReplied(options: Record<string, unknown>, maxAgeMs = 3600000): voi
 }
 
 // Option labels come from the agent's own tool call (question fields), so
-// they're attacker-reachable the same way OBJECTIVE/HALT.detail are —
+// they're attacker-reachable the same way OBJECTIVE/HALT.detail are:
 // capped per-label (build_objective_block caps OBJECTIVE/detail too) and
-// redacted before they become Jev's multichoice criteria (see
+// redacted before they become the model's multichoice criteria (see
 // build_questions in schemas.py). Not fenced like OBJECTIVE/detail: the
 // pre-supplied "must be one of these options" check bounds what a
 // resulting pick can do, so the goal here is capping cost/exposure, not
-// closing a bypass — see SECURITY.md.
+// closing a bypass; see SECURITY.md.
 const LABEL_MAX_CHARS = 200
 
 // Same normalization applied on both the way out (labelsFromFormField,
-// what Jev sees) and the way back (valueForPick, matching Jev's pick to
+// what the model sees) and the way back (valueForPick, matching the model's pick to
 // the original option): deterministic, so re-deriving it at lookup time
 // stays correct even though filter/slice can shift indices, without
 // needing a positional mapping between raw options and shown labels.
@@ -459,8 +459,8 @@ export function labelsFromFormField(field: unknown): string[] {
 }
 
 // Returns null when the pick is ambiguous: two different original options
-// normalized (redacted/truncated) to the same string, so which one Jev
-// "meant" can't be recovered — first-match-wins would silently apply a
+// normalized (redacted/truncated) to the same string, so which one the model
+// "meant" can't be recovered: first-match-wins would silently apply a
 // different, still-valid option than the one actually intended, with no
 // signal anything went wrong. Callers must
 // treat null the same as "pick not offered": ask-human, don't guess.
@@ -494,8 +494,8 @@ export function valueForPick(field: unknown, pick: string): string | null {
 // is the safe direction). An unreferenced key counts as unanswered: `eq`
 // is false, `neq` is true. A malformed condition can't be verified, so it
 // fails safe (field not visible) rather than risking a reply value that
-// violates an unparseable constraint. Callers skip the field entirely —
-// no Jev call, no answer entry (the server 400s on a reply that includes
+// violates an unparseable constraint. Callers skip the field entirely:
+// no model call, no answer entry (the server 400s on a reply that includes
 // a field whose `when` isn't satisfied).
 export function fieldVisible(field: unknown, answers: Record<string, unknown>): boolean {
   if (!field || typeof field !== "object") return true
@@ -519,11 +519,11 @@ export function fieldVisible(field: unknown, answers: Record<string, unknown>): 
   return true
 }
 
-// Encodes Jev's pick into the value the form reply API expects
+// Encodes the model's pick into the value the form reply API expects
 // for this field's type. multiselect fields take an array of option values
-// (Jev's single pick -> one-element array; a future list pick is mapped
+// (the model's single pick -> one-element array; a future list pick is mapped
 // element-wise by the caller). Every other field takes a plain string.
-// Ambiguity (valueForPick returning null — two options collide after
+// Ambiguity (valueForPick returning null: two options collide after
 // redaction/truncation) propagates as null; callers treat it as ask-human.
 export function encodeAnswer(field: unknown, pick: string): string | string[] | null {
   const value = valueForPick(field, pick)
@@ -602,7 +602,7 @@ export function listPendingForms(directory?: string): Promise<Array<Record<strin
  * `opencode api POST .../reply` on that exact requestID succeeds
  * immediately. This is not a server-side expiry/TTL race; the SDK
  * method itself is what's unreliable (plausibly related to setup()
- * running more than once per process — see claimReply). Shared by
+ * running more than once per process, see claimReply). Shared by
  * replyFormAnswer and replyPermission below. */
 export function postApiReply(apiPath: string, body: Record<string, unknown>, errPrefix: string): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -703,7 +703,7 @@ function minimalEnv(options: Record<string, unknown>): Record<string, string | u
 // both costs back to back. Every permission.reply() this plugin makes
 // races a short, non-configurable server-side window (see
 // docs/TROUBLESHOOTING.md "Ordinary permission replies can silently miss
-// the window") — this does not close that race, it narrows it.
+// the window"): this does not close that race, it narrows it.
 function spawnGate(options: Record<string, unknown>): {
   send: (event: Record<string, unknown>) => void
   cancel: () => void
@@ -781,7 +781,7 @@ function spawnGate(options: Record<string, unknown>): {
       }
       // Same SIGKILL backstop as the timeout path above: without it, a
       // child that doesn't die on SIGTERM (installed its own handler, or
-      // just misses the signal) leaks forever — cancel() has no other
+      // just misses the signal) leaks forever: cancel() has no other
       // caller to retry it, and nothing else cleans it up.
       const killer = setTimeout(() => {
         try {
@@ -801,7 +801,7 @@ function spawnGate(options: Record<string, unknown>): {
 
 // A gate subprocess that died from a signal (OOM killer, a stray pkill)
 // or could not be spawned for a transient resource reason is worth one
-// fresh attempt: the retry only re-asks Jev, it cannot allow anything by
+// fresh attempt: the retry only re-asks the model, it cannot allow anything by
 // itself. A non-zero exit, a timeout or unparseable output is a real
 // answer about this input and is not retried.
 export function isRetryableGateError(err: unknown): boolean {
@@ -848,11 +848,11 @@ export function textOfMessage(message: unknown): ConversationTurn | null {
   if (typeof msg.text === "string" && msg.text.trim()) return { role, text: msg.text }
   // Real assistant-message shape, confirmed against the installed
   // @opencode/client types, not just observed behavior:
-  // SessionMessageAssistant has neither .text nor .parts at all — its text
+  // SessionMessageAssistant has neither .text nor .parts at all: its text
   // lives in content[].text for "text"/"reasoning" items ("tool" items
   // have no plain text and are skipped, same reasoning as the .parts
   // branch below). Without this, every assistant turn silently vanished
-  // from what Jev is shown, despite the surrounding code's own comment
+  // from what the model is shown, despite the surrounding code's own comment
   // that OBJECTIVE should reflect "what the agent has been doing, not
   // just the human's last message."
   if (Array.isArray(msg.content)) {
@@ -882,20 +882,20 @@ export function textOfMessage(message: unknown): ConversationTurn | null {
 export type PermissionSource = { messageID: string; id: string }
 
 // The "subagent" permission action (opencode 2.0.11; docs still call it
-// "task") carries only the target agent's short name in `resources` —
+// "task") carries only the target agent's short name in `resources`:
 // live-verified: `resKinds` was consistently "text:7ch", the exact length
 // of "general", for every subagent dispatch observed, never the dispatch's
-// `description`/`prompt`. Jev then evaluates a "write" action whose only
+// `description`/`prompt`. The model then evaluates a "write" action whose only
 // evidence is a 7-character agent slug, with `objectiveFor` unable to fill
 // the gap since it deliberately excludes tool-call payloads (see
-// `textOfMessage`) — the actual dispatch prompt lives nowhere Jev can see
+// `textOfMessage`): the actual dispatch prompt lives nowhere the model can see
 // it, so it defaults to low-confidence deny nearly every time (0.06-0.26
 // confidence across a live run of 6 parallel subagent dispatches, all
 // denied). `source` lets us pull the real dispatch content (agent/
 // description/prompt) from the same session-context RPC `objectiveFor`
-// already makes, so Jev can judge what the subagent will actually do
+// already makes, so the model can judge what the subagent will actually do
 // instead of just its target agent type. Fails open to the original
-// (thin) resources on any lookup failure — this only ever adds evidence,
+// (thin) resources on any lookup failure: this only ever adds evidence,
 // never removes the existing fail-open path.
 export async function subagentDetailFor(
   ctx: { session: { context: (input: { sessionID: string }) => Promise<unknown> } },
@@ -993,7 +993,7 @@ export async function evaluatePermission(
 ): Promise<void> {
   const { sessionID, action, resources, source, effect } = input;
 
-  // Respect user's allow/deny config — only intercept when effect is "ask"
+  // Respect user's allow/deny config: only intercept when effect is "ask"
   if (effect !== "ask") {
     return;
   }
@@ -1021,7 +1021,7 @@ export async function evaluatePermission(
     return;
   }
 
-  // Catastrophic pattern: deny instantly with message, no Jev call
+  // Catastrophic pattern: deny instantly with message, no model call
   if (deps.isCatastrophic(joined)) {
     input.effect = "deny";
     input.message =
@@ -1049,18 +1049,18 @@ export async function evaluatePermission(
 
   const kind = deps.kindFor(action, mutableResources);
 
-  // Build gate event and call Jev
+  // Build gate event and call the model
   try {
     const objective = await deps.objectiveFor(deps.ctx, sessionID, deps.endedSessions, deps.objectiveBudgetOf(deps.options));
     // Edits carry their diff in metadata.files, not in resources (which is
-    // just the path): without it Jev would judge every write blind. Only
-    // the Jev payload gets it; the kill-list and kindFor stay on resources.
+    // just the path): without it the model would judge every write blind. Only
+    // the model payload gets it; the kill-list and kindFor stay on resources.
     const patches = editPatchesOf(input.metadata);
     const detail = clipHeadTail(deps.redactSecrets(patches ? `${joined}\n${patches}` : joined), DETAIL_MAX_CHARS);
     const hintParts: string[] = [];
     if (action === "doom_loop") hintParts.push("doom_loop: identical tool call repeated");
     if (deps.DESTRUCTIVE_HINT.test(joined)) hintParts.push("matches destructive-hint");
-    if (deps.COMMAND_SUBSTITUTION.test(joined)) hintParts.push("contains command substitution ($(...) or `...`) — real effect cannot be statically determined");
+    if (deps.COMMAND_SUBSTITUTION.test(joined)) hintParts.push("contains command substitution ($(...) or `...`); real effect cannot be statically determined");
     if (detail.includes(OMITTED_MARK)) hintParts.push("detail too long: middle omitted, judge head and tail");
     const riskHints = hintParts.join("; ");
 
@@ -1100,7 +1100,7 @@ export async function evaluatePermission(
     } else if (decision.action === "deny") {
       input.effect = "deny";
       const reason = String(decision.reason ?? "model-deny");
-      input.message = `Denied by ollaya-decision-gate (Jev): ${deps.redactSecrets(reason)}. Choose a safer alternative or explain why this is needed.`;
+      input.message = `Denied by ollaya-decision-gate (local model): ${deps.redactSecrets(reason)}. Choose a safer alternative or explain why this is needed.`;
     } else {
       // ask-human or unknown -> leave effect as "ask"
     }
@@ -1135,7 +1135,7 @@ function archivedAt(info: unknown): unknown {
 // The opencode SDK's error surface for "this session is gone" overlaps in
 // wording with a dozen unrelated *NotFoundError types (ProviderNotFoundError,
 // AgentNotFoundError, SkillNotFoundError, McpServerNotFoundError,
-// CommandNotFoundError, FileNotFoundError, ...) — confirmed reachable: a
+// CommandNotFoundError, FileNotFoundError, ...), confirmed reachable:
 // a bare /not found/i regex matches "Provider anthropic not
 // found" just as readily as an actual session error. Misclassifying one of
 // those as "session ended" is worse than it sounds: the session gets
@@ -1143,7 +1143,7 @@ function archivedAt(info: unknown): unknown {
 // just silently stops replying for that session, forever, violating
 // SECURITY.md's "never silently allows" guarantee in spirit even though
 // it denies rather than allows). Checking the SDK's own `_tag` first
-// (Effect's TaggedStruct discriminant — SessionNotFoundError is the real
+// (Effect's TaggedStruct discriminant: SessionNotFoundError is the real
 // one) is precise when present; the regex fallback now requires "session"
 // to co-occur with the not-found-ish wording instead of either alone,
 // closing the cross-contamination with sibling *NotFoundError types.
@@ -1187,7 +1187,7 @@ async function objectiveFor(
     const messages = await ctx.session.context({ sessionID })
     const list = Array.isArray(messages) ? messages : []
     const turns = list.map(textOfMessage).filter((t): t is ConversationTurn => t !== null)
-    // Recent conversation, both roles, newest last: lets Jev judge
+    // Recent conversation, both roles, newest last: lets the model judge
     // whether a halt matches what the human asked AND what the agent
     // has been doing, not just the human's last message. Walk backward
     // so a budget cut drops the oldest turns first; each turn is also
@@ -1211,9 +1211,9 @@ async function objectiveFor(
   }
 }
 
-// Question tool calls whose questions Jev could not answer and were handed
+// Question tool calls whose questions the model could not answer and were handed
 // to the tool's own execute (which opens the human form). The form path
-// skips those forms instead of asking Jev the same thing again.
+// skips those forms instead of asking the model the same thing again.
 // opencode loads a separate copy of this module for every setup()
 // instance (one per project directory), so module-level state is NOT
 // shared between instances: a "one poller per process" design that
@@ -1261,7 +1261,7 @@ export function questionToolResult(
   }
 }
 
-// Asks Jev each question of one question-tool call. Returns one [label] per
+// Asks the model each question of one question-tool call. Returns one [label] per
 // question, or null as soon as one cannot be answered (not allow, pick not
 // offered, ambiguous after redaction, or no options): the caller then
 // falls back to the human form for the whole call.
@@ -1430,7 +1430,7 @@ export default Plugin.define({
     // Dedupe: the server may emit the same permission request more than
     // once while it is pending. Evaluate once per requestID; concurrent
     // duplicates await the same promise, late duplicates reuse the cached
-    // reply without calling Jev again.
+    // reply without calling the model again.
     const inFlight = new Map<string, Promise<Record<string, unknown>>>()
     const resolved = new Map<string, { decision: string; repliedOk: boolean }>()
     const endedSessions = new Set<string>()
@@ -1440,9 +1440,9 @@ export default Plugin.define({
     pruneReplied(options)
     
     // Answer the question tool in-process: wrapping its execute means
-    // Jev's pick is returned as the tool result directly, with no form and
+    // the model's pick is returned as the tool result directly, with no form and
     // no reply through `opencode api` (which only reaches the background
-    // service). When Jev cannot answer, the original execute opens the
+    // service). When the model cannot answer, the original execute opens the
     // human form as before. The marker keeps sibling setup() instances
     // from wrapping the same tool twice.
     try {
@@ -1529,19 +1529,19 @@ export default Plugin.define({
       })
       hookRegistered = true
     } catch (err) {
-      // Hook API not available (older opencode version) — fall back to permission.asked events
+      // Hook API not available (older opencode version): fall back to permission.asked events
       logEv({
         reason: "hook-unavailable",
         error_class: err instanceof Error ? err.message.slice(0, 120) : "exception",
       })
     }
-    // pruneReplied only ran once, at setup() — a long-running opencode host
+    // pruneReplied only ran once, at setup(): a long-running opencode host
     // process (days/weeks, setup() never re-invoked) accumulates one marker
     // file per permission/form forever (unbounded: 5000 claimReply
     // calls means 5000 unpruned files). Same class of bug
     // already fixed for the in-memory collections via capped(); this is
     // its on-disk sibling. Cadence matches pruneReplied's own maxAgeMs
-    // default (1h) — no need to poll as often as the form-list.
+    // default (1h): no need to poll as often as the form-list.
     const pruneTimer = setInterval(() => pruneReplied(options), 3600000)
     ;(pruneTimer as unknown as { unref?: () => void }).unref?.()
     const controller = new AbortController()
@@ -1584,7 +1584,7 @@ export default Plugin.define({
           const fid = String(form.id ?? payload.id ?? "")
           if (fid) capped(formSeen).add(fid)
           // handleFormAsked re-derives its own formID from *this* payload's
-          // .id alone (no further fallback) — if the real id only lived at
+          // .id alone (no further fallback): if the real id only lived at
           // the outer event's payload.id (form.id itself absent), fid above
           // resolves it correctly but handleFormAsked would still see
           // formID="" and hit its missing-ids early return, permanently
@@ -1600,7 +1600,7 @@ export default Plugin.define({
             // handleFormAsked are swallowed by its own internal fail-open
             // catch and never reject here, but a throw BEFORE its
             // claimReply call (e.g. missing-ids on a malformed event) never
-            // claims anything on disk — leaving fid in formSeen forever
+            // claims anything on disk: leaving fid in formSeen forever
             // would permanently block the poll path's own retry for a form
             // that was never actually claimed.
             if (fid) formSeen.delete(fid)
@@ -1613,7 +1613,7 @@ export default Plugin.define({
         const requestID = String(data.id ?? "")
         const action = String((data as { action?: unknown }).action ?? "")
         // If the hook is registered, permission.asked means we already decided ask-human
-        // or the config forced it. Just log as trace, no Jev call, no reply.
+        // or the config forced it. Just log as trace, no model call, no reply.
         if (hookRegistered) {
           logEv({ sessionID, requestID, tool: action, gateAction: "ask-human", reason: "asked-human" })
           continue
@@ -1714,7 +1714,7 @@ export async function handleFormAsked(
   }
   const toolRef = (payload.metadata as { tool?: { messageID?: unknown; id?: unknown } } | undefined)?.tool
   if (toolRef && questionsLeftForHuman.has(`${String(toolRef.messageID ?? "")}:${String(toolRef.id ?? "")}`)) {
-    // Jev already declined this question in the tool wrapper; asking
+    // The model already declined this question in the tool wrapper; asking
     // again here would just repeat the same call. It is the human's.
     return
   }
@@ -1751,8 +1751,8 @@ export async function handleFormAsked(
           : `q${fi}`
       const type = field && typeof field === "object" ? (field as { type?: unknown }).type : undefined
 
-      // Conditional/hidden fields are skipped — no Jev call, no
-      // answer entry — when their visibility doesn't hold against the
+      // Conditional/hidden fields are skipped (no model call, no
+      // answer entry) when their visibility doesn't hold against the
       // answers already decided. The server 400s on a reply that includes
       // a field whose `when` isn't satisfied, so this is not optional.
       if (!fieldVisible(field, answer)) {
@@ -1773,8 +1773,8 @@ export async function handleFormAsked(
         field && typeof field === "object" ? (field as { required?: unknown }).required === true : false
 
       // A visible field with no options and a non-multiselect
-      // type (boolean/number/free-string) can't be answered by a pick —
-      // there is nothing for Jev to choose from. Log before calling Jev
+      // type (boolean/number/free-string) can't be answered by a pick:
+      // there is nothing for the model to choose from. Log before calling the model
       // and don't call it. A non-required one is skipped (the form keeps
       // going); a required one aborts the form (ask-human: the field
       // stays pending for the human, since it can't be filled for them).
@@ -1837,7 +1837,7 @@ export async function handleFormAsked(
         phase: "form-answer",
       })
 
-      // No silent early exits from the field loop — every one logs a
+      // No silent early exits from the field loop: every one logs a
       // distinct reason with gateAction "ask-human" (the field stays
       // pending for the human) and this fieldKey.
       const rawPick = decision.pick
@@ -1925,7 +1925,7 @@ export async function handleFormAsked(
         else values.push(...encoded)
       }
       if (type !== "multiselect" && values.length !== 1) {
-        // Several picks for a single-select field: can't tell which one Jev
+        // Several picks for a single-select field: can't tell which one the model
         // meant. Same treatment as any other ambiguity.
         log({
           sessionID,
@@ -1997,18 +1997,18 @@ export async function handleOne(
   endedSessions: Set<string>,
   source?: PermissionSource | null,
 ): Promise<{ decision: string; repliedOk: boolean }> {
-  // From permission.asked to whenever we attempt (or give up on) a reply —
+  // From permission.asked to whenever we attempt (or give up on) a reply,
   // diagnoses the reply-vs-server-window race, distinct from
-  // Jev's own call time (which runGate already measures separately).
+  // the model's own call time (which runGate already measures separately).
   const receivedAt = Date.now()
-  // Claim the whole request (evaluation + reply) before calling Jev, not
+  // Claim the whole request (evaluation + reply) before calling the model, not
   // just before replying. setup() runs more than once per opencode
   // process (confirmed in production logs: same pid, different inst),
   // so without this, every instance independently evaluates and races
-  // to reply to the same permission — 2-3x Jev calls and, for the
+  // to reply to the same permission: 2-3x model calls and, for the
   // interactive question tool, a reply race against the human's own
   // answer. First claimant wins via an exclusive marker file; losers
-  // never touch Jev at all.
+  // never touch the model at all.
   const claim = claimReply(options, requestID, inst)
   if (claim === "lost") {
     log({ sessionID, requestID, tool: action, gateAction: "ask-human", reason: "duplicate-suppressed" })
@@ -2029,14 +2029,14 @@ export async function handleOne(
     } catch (err) {
       log({ sessionID, requestID, tool: action, gateAction: "reject", reason: "reply-failed", error_class: err instanceof Error ? err.message.slice(0, 120) : "exception", totalElapsedMs: Date.now() - receivedAt })
       repliedOk = false
-      // The reject was computed but never delivered — the tool call may be
+      // The reject was computed but never delivered: the tool call may be
       // hanging with no signal at all otherwise. See docs/TROUBLESHOOTING.md
       // "Ordinary permission replies can silently miss the window".
     }
     return { decision: "deny", repliedOk }
   }
 
-  // question permission: allow the tool without session.context / Jev.
+  // question permission: allow the tool, with no session.context and no model call.
   // Answering happens by polling /api/form and POSTing form replies.
   // Touching session.context here was implicated in the post-pick hang.
   if (action === "question") {
@@ -2071,8 +2071,8 @@ export async function handleOne(
   }
 
   // The subagent/task permission's own `resources` is just the target
-  // agent's short name (see subagentDetailFor's comment) — pull the real
-  // dispatch content (agent/description/prompt) so kindFor and Jev both
+  // agent's short name (see subagentDetailFor's comment): pull the real
+  // dispatch content (agent/description/prompt) so kindFor and the model both
   // see what the subagent will actually do, not just its agent type.
   // Never throws (subagentDetailFor fails open to null internally), so
   // this can't turn into a new fail-open path of its own.
@@ -2092,7 +2092,7 @@ export async function handleOne(
   // value derived from options (e.g. a NUL byte in a malformed
   // logFile/gateDir) is invalid. Outside the try, that throw
   // propagated out of handleOne entirely, past every log() call in this
-  // function, caught only by setup()'s bare event-loop catch — which logs
+  // function, caught only by setup()'s bare event-loop catch, which logs
   // nothing and marks repliedOk:true so a
   // later duplicate permission.asked for the same requestID never even
   // retries (claimReply already claimed it). Strictly worse than every
@@ -2119,7 +2119,7 @@ export async function handleOne(
     const hintParts: string[] = []
     if (action === "doom_loop") hintParts.push("doom_loop: identical tool call repeated")
     if (DESTRUCTIVE_HINT.test(joined)) hintParts.push("matches destructive-hint")
-    if (COMMAND_SUBSTITUTION.test(joined)) hintParts.push("contains command substitution ($(...) or `...`) — real effect cannot be statically determined")
+    if (COMMAND_SUBSTITUTION.test(joined)) hintParts.push("contains command substitution ($(...) or `...`); real effect cannot be statically determined")
     if (detail.includes(OMITTED_MARK)) hintParts.push("detail too long: middle omitted, judge head and tail")
     const riskHints = hintParts.join("; ")
     const halt: Record<string, unknown> = { kind, tool: action, detail }
@@ -2184,8 +2184,8 @@ export async function handleOne(
           totalElapsedMs: Date.now() - receivedAt,
         })
         repliedOk = false
-        // Jev decided, but the reply arrived after the server stopped
-        // tracking the request — the tool call is likely hanging with no
+        // The model decided, but the reply arrived after the server stopped
+        // tracking the request: the tool call is likely hanging with no
         // other signal. See docs/TROUBLESHOOTING.md "Ordinary permission
         // replies can silently miss the window".
       }

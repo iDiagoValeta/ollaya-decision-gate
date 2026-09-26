@@ -1,10 +1,10 @@
 # src/ollaya_gate/schemas.py
-"""State + question builders for the Jev gate.
+"""State + question builders for the gate.
 
 The state is structured JSON (objective / halt / risk_hints / policy /
-question, plus which fields are untrusted) so Jev judges safety and
-alignment with as much context as fits its window. Secrets are
-redacted before sending.
+question, plus which fields are untrusted) so the model judges safety
+and alignment with as much context as fits the state budget (see
+STATE_BUDGETS). Secrets are redacted before sending.
 """
 
 import hashlib
@@ -20,7 +20,7 @@ _SECRET_PATTERNS = [
     # Raw JWT (no Bearer prefix): three base64url segments, starts "eyJ"
     # (base64 of the JSON header's leading `{"`).
     re.compile(r"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b"),
-    # scheme://user:PASSWORD@host — redact only the password, keep the
+    # scheme://user:PASSWORD@host: redact only the password, keep the
     # rest (host/port/path) visible for debugging context. Scheme repetition
     # is bounded to 20 (real schemes are a handful of chars): an unbounded
     # `*` here is O(n^2) on long input with no "://" anywhere, and the
@@ -28,7 +28,7 @@ _SECRET_PATTERNS = [
     # `objective`, so this is reachable with a multi-MB stdin payload.
     re.compile(r"([a-zA-Z][a-zA-Z0-9+.-]{0,20}://[^\s/:@]+):([^\s/@]{1,})@"),
     # Keyword may be embedded in a longer identifier (AWS_SECRET_ACCESS_KEY=...),
-    # not just stand alone (password=...) — the keyword can appear anywhere
+    # not just stand alone (password=...); the keyword can appear anywhere
     # in the token, not only at its start. The flanking runs are bounded
     # to 56: unbounded stars here are O(n^2) on keyword-dense input with
     # no "=" anywhere, since each mid-string keyword match re-scans an
@@ -47,7 +47,7 @@ _SECRET_PATTERNS = [
 
 # Secrets passed as CLI flag values rather than KEY=VALUE. Every
 # repetition below is bounded, for the same O(n^2) reason as above.
-# curl -u/--user user:pass — keep the user, redact only the password.
+# curl -u/--user user:pass (keep the user, redact only the password).
 # Password can be unquoted ([^\s'"`]{1,200}), double-quoted ("[^"\n]{1,200}"),
 # or single-quoted ('[^'\n]{1,200}'). Quoted values may contain spaces.
 _CLI_USER_RE = re.compile(
@@ -64,16 +64,16 @@ _CLI_PASSWORD_FLAG_RE = re.compile(
 )
 # VAR VALUE with no "=" (env-style: PGPASSWORD hunter2, or
 # `aws configure set aws_secret_access_key hunter2`). The name must be
-# env-var-shaped — ALL-CAPS or containing an underscore — so prose like
+# env-var-shaped (ALL-CAPS or containing an underscore), so prose like
 # `fix password reset flow` or `grep -r token src/` is untouched.
 # Value can be unquoted ([^\s'"`]{4,200}), double-quoted ("[^"\n]{1,200}"),
 # or single-quoted ('[^'\n]{1,200}'). Quoted values may contain spaces.
 # ONE bounded token run, with the keyword/caps/underscore checks done
-# in Python code — not nested `[A-Za-z0-9_]*keyword[A-Za-z0-9_]*` stars
+# in Python code, not nested `[A-Za-z0-9_]*keyword[A-Za-z0-9_]*` stars
 # in the regex, which is O(n^2) on underscore-dense input.
 # Overlapping candidates (`set aws_secret_access_key VALUE`: the rejected
 # `set ...` pair must not swallow the real token) rule out a plain
-# sub() — hence the manual scan, which advances one char on reject
+# sub(); hence the manual scan, which advances one char on reject
 # (bounded re-scan, still O(n) overall).
 _CLI_ENV_SPACE_PAIR_RE = re.compile(
     r"\b([A-Za-z0-9_]{1,64})\s+"
@@ -157,7 +157,7 @@ def sha256_hex(text):
     # Strict encoding would raise UnicodeEncodeError, which build_state()
     # catches as a generic "exception" (fails open, but loses the real
     # cause) and which _write_log_entry()'s blanket except would silently
-    # swallow — dropping that entire log line with no trace.
+    # swallow, dropping that entire log line with no trace.
     return hashlib.sha256(text.encode("utf-8", errors="replace")).hexdigest()
 
 
@@ -187,7 +187,7 @@ def clip_head_tail(text, limit):
 
 def _read_notes_file(path):
     """Best-effort read, stripped; "" on any I/O problem (missing file,
-    permission error, or a directory sitting where the file should be) —
+    permission error, or a directory sitting where the file should be):
     notes are an optional evidence source, never a reason to fail-open the
     whole gate."""
     if not path:
@@ -200,19 +200,19 @@ def _read_notes_file(path):
 
 
 def load_user_notes(env=None):
-    """Personal preferences the gate owner writes for Jev to weigh as
-    context (see build_objective_block's USER-NOTES section) — never a
-    deterministic override; the catastrophic kill-list runs before Jev is
-    ever called, and decision.py takes Jev's own choice, not the notes,
-    verbatim.
+    """Personal preferences the gate owner writes for the model to weigh
+    as context (see build_objective_block's USER-NOTES section), never a
+    deterministic override; the catastrophic kill-list runs before the
+    model is ever called, and decision.py takes the model's own choice,
+    not the notes, verbatim.
 
-    Two sources, both local-only (never committed — see .gitignore for
+    Two sources, both local-only (never committed; see .gitignore for
     `.ollaya-notes.md`, which keeps a malicious PR from smuggling in fake
     "always allow" notes):
     - global: `$XDG_CONFIG_HOME/ollaya-gate/notes.md` (falls back to
-      `$HOME/.config/ollaya-gate/notes.md`) — this person's preferences
+      `$HOME/.config/ollaya-gate/notes.md`), this person's preferences
       across every project the gate runs in.
-    - project: `$OLLAYA_GATE_DIR/.ollaya-notes.md` — this project's own notes.
+    - project: `$OLLAYA_GATE_DIR/.ollaya-notes.md`: this project's own notes.
     """
     env = os.environ if env is None else env
     config_home = env.get("XDG_CONFIG_HOME") or (
@@ -254,17 +254,16 @@ def _with_clip_hint(risk_hints, detail):
 
 
 def build_state(objective, halt, context, policy, user_notes=None, budget=STATE_BUDGETS[0]):
-    """The structured state Jev receives, and nothing else.
+    """The structured state the model receives, and nothing else.
 
     Every free-text field is redacted here, independently of index.ts. The
     raw event never rides along: it would bypass this redaction. Being JSON,
     untrusted text cannot escape its own string field to forge a policy or
-    question; the `untrusted` field tells Jev which fields are data. A flat
-    fenced text brief measured much lower confidence (allow ~0.5 vs 0.99),
-    so the structure matters to Jev. `policy` from the event is superseded by the fixed policy line.
+    question; the `untrusted` field tells the model which fields are data.
+    `policy` from the event is superseded by the fixed policy line.
 
-    Budget: the halt detail is what Jev judges, so it gets the budget first
-    (at least half of it); the objective fills the rest with its most
+    Budget: the halt detail is what the model judges, so it gets the budget
+    first (at least half of it); the objective fills the rest with its most
     recent part, which is where the current task lives.
     """
     obj = redact_secrets((objective or "").strip())

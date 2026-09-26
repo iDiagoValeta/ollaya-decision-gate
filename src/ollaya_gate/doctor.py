@@ -13,7 +13,7 @@ from ollaya_gate.client import DEFAULT_MODEL, base_url
 
 
 def check(name, ok, hint=""):
-    print(f"{'OK  ' if ok else 'FAIL'}  {name}" + (f" — {hint}" if hint and not ok else ""))
+    print(f"{'OK  ' if ok else 'FAIL'}  {name}" + (f" ({hint})" if hint and not ok else ""))
     return ok
 
 

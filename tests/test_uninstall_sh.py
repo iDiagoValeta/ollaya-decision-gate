@@ -10,7 +10,7 @@ def test_uninstall_sh_gives_a_clear_error_on_a_jsonc_file_with_comments(tmp_path
     # extension invites comments/trailing commas. Before the fix this
     # crashed with a raw Python traceback (set -euo pipefail then aborted
     # the whole script, including the log-purge/pip-uninstall steps after
-    # it) instead of a clear, actionable message — and left the user
+    # it) instead of a clear, actionable message, and left the user
     # unsure whether the plugin was actually removed.
     original = '{\n  // a comment\n  "permission": "ask",\n  "plugins": []\n}\n'
     cfg = tmp_path / "opencode.jsonc"

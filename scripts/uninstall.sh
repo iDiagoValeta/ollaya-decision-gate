@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# uninstall.sh — remove ollaya-decision-gate without hand-editing JSON.
+# uninstall.sh: remove ollaya-decision-gate without hand-editing JSON.
 # Usage: ./scripts/uninstall.sh [--global|--project|--all] [--purge-logs] [--pip]
 set -euo pipefail
 SCOPE="--project"
@@ -30,10 +30,10 @@ with open(p) as f:
     except json.JSONDecodeError as e:
         # .jsonc invites comments/trailing commas; this uninstaller only
         # speaks strict JSON. The backup at p + ".bak" above is untouched
-        # and safe — nothing has been written back yet.
+        # and safe: nothing has been written back yet.
         print(f"ERROR: {p} is not valid JSON ({e}). If it has comments or "
               "trailing commas, this uninstaller can't edit it "
-              "automatically — remove the ollaya-decision-gate entry from "
+              "automatically: remove the ollaya-decision-gate entry from "
               f"its \"plugins\" array by hand ({p}.bak is an untouched "
               "backup, safe to delete once you're done).",
               file=sys.stderr)

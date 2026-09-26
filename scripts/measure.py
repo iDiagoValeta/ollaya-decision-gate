@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""measure.py v2 — allowance / safety / latency / cost over v1+v2 logs.
+"""measure.py v2: allowance / safety / latency / cost over v1+v2 logs.
 
 Usage: python3 scripts/measure.py [--log PATH]... [--json] [--by-session]
        [--price-per-1k USD]  (cost = input_tokens * price / 1000)
@@ -20,9 +20,9 @@ FAIL_OPEN = "fail-open"
 # setup() runs more than once per opencode process (see AGENTS.md /
 # docs/ARCHITECTURE.md): every real permission gets logged twice, once by
 # the losing instance as gateAction="ask-human" reason="duplicate-suppressed"
-# (a no-op that never called Jev) and once by the winner with the real
+# (a no-op that never called the model) and once by the winner with the real
 # decision. Counting these as ordinary rows doubles `total` and inflates
-# the apparent ask-human rate toward 50% regardless of what Jev actually
+# the apparent ask-human rate toward 50% regardless of what the model actually
 # decided (live-verified: 418/849 rows in a production log were this
 # no-op, only 10 were genuine ask-human).
 DUPLICATE_SUPPRESSED = "duplicate-suppressed"
@@ -195,7 +195,7 @@ def main():
         if args.by_session:
             for sid, b in out["by_session"].items():
                 # A lone UTF-16 surrogate in sessionID would crash a raw
-                # print via stdout's utf-8 encoder — same bug class as
+                # print via stdout's utf-8 encoder, same bug class as
                 # sha256_hex. errors="replace" for a display-only
                 # truncated preview, not anything requiring fidelity.
                 safe_sid = sid[:8].encode("utf-8", errors="replace").decode("utf-8")
