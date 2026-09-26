@@ -36,6 +36,13 @@ const CATASTROPHIC = [
   /\bcurl\b.*\|\s*(sh|bash|sudo\s+bash)\b/,
   /\bwget\b.*\|\s*(sudo\s+bash|sh|bash)\b/,
   /\bbase64\s+(-d|--decode)\b.*\|\s*(sh|bash)\b/,
+  // Remote code run through substitution instead of a pipe: `bash -c
+  // "$(curl ...)"`, `eval "$(wget ...)"`, `source <(curl ...)`. Only a
+  // fetch (curl/wget) directly inside the substitution counts, so local
+  // `eval "$(ssh-agent -s)"` or `source <(kubectl completion bash)` pass.
+  /\b(sh|bash|zsh|dash|ksh)\s+(-[a-z]+\s+)*-[a-z]*c\s+["']?\s*(\$\(|`)\s*(curl|wget)\b/,
+  /\beval\s+["']?\s*(\$\(|`)\s*(curl|wget)\b/,
+  /(^|[\s(])(source|sh|bash|zsh|\.)\s+<\(\s*(curl|wget)\b/,
   /\b(powershell|pwsh)\b.*\biex\b/i,
   /\bgit\s+push\b.*--(force|mirror)\b/,
   /\bgit\s+push\b.*\s+(-f)(?!\S)/,

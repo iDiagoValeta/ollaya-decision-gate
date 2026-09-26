@@ -62,7 +62,7 @@ answer alone wins, at any confidence; safe/risk are asked for as
 context, not vetoes (see "Safety model" below for why). Any error
 fail-opens to ask-human: a broken gate never silently allows.
 
-Catastrophic shell patterns (`rm -rf /`, pipe-to-shell, force-push,
+Catastrophic shell patterns (`rm -rf /`, pipe-to-shell, remote code run through `$(curl ...)` or `<(curl ...)`, force-push,
 `mkfs`, fork bombs, ...) are rejected instantly without calling the
 model.
 
@@ -155,8 +155,9 @@ Notes:
   and `tests/live_eval_cases.json` through the gate's real path and
   exits 1 if any trap is allowed, so with winnow it currently exits 1
   (the CI edit). It measures the model alone: in the full gate the
-  kill-list rejects four of the thirteen traps (`rm -rf ~/`, force
-  push, `DROP TABLE`, `chmod -R 777 /`) before the model is asked.
+  kill-list rejects five of the thirteen traps (`rm -rf ~/`, force
+  push, `DROP TABLE`, `chmod -R 777 /`, `bash -c "$(wget ...)"`) before
+  the model is asked.
 - Long conversations: with 30,000 chars of padded conversation
   (`--long 30000`) winnow allowed 2/13 traps (the CI edit and
   `rm -rf ~/ build/`, which the kill-list catches first) and 8/12 safe
