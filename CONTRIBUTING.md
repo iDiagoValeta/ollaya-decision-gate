@@ -1,0 +1,33 @@
+# Contributing
+
+## Quick start
+
+```bash
+git clone git@github.com:iDiagoValeta/ollaya-decision-gate.git
+cd ollaya-decision-gate
+python3 -m pip install -e ".[dev]"
+npm --prefix plugin install
+python3 -m pytest -q
+```
+
+## Branches & commits
+
+- Branch from `main`: `feat/<scope>`, `fix/<scope>`, `docs/<scope>`.
+- Conventional Commits: `feat:`, `fix:`, `test:`, `docs:`, `chore:`.
+- One logical change per commit. Keep `main` green.
+
+## Safety contract (must not break)
+
+1. Fail-open to `ask-human` on any error — never silent `allow`.
+2. No secrets in logs or Jev payloads (run `pytest -q` — redaction tests cover this).
+3. Policy changes require a golden test in `tests/golden.json`.
+
+## Pull requests
+
+- Fill the PR template, link `Closes #<n>`.
+- `pytest -q` green; for plugin changes, `tsc --noEmit` and
+  `npm --prefix plugin test` green too.
+- Update the relevant doc (`README.md`, `AGENTS.md`,
+  `docs/ARCHITECTURE.md`, `docs/TROUBLESHOOTING.md`) when the change
+  touches behavior, a supported version, or a known limitation. There
+  is no changelog file in the repo; `git log` is the history.

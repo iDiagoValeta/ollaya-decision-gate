@@ -1,0 +1,25 @@
+name: Bug report
+description: Something the gate did wrong (allowed, blocked, or stayed silent when it shouldn't).
+labels: [bug]
+body:
+  - type: input
+    id: version
+    attributes: { label: "Plugin version", placeholder: "e.g. 0.2.0" }
+    validations: { required: true }
+  - type: input
+    id: env
+    attributes: { label: "Environment", placeholder: "opencode v2.x / python 3.x / OS" }
+    validations: { required: true }
+  - type: textarea
+    id: expected
+    attributes: { label: "Expected (fail-open to ask-human?)", placeholder: "What should have happened" }
+    validations: { required: true }
+  - type: textarea
+    id: log
+    attributes:
+      label: "Redacted log lines"
+      description: "Paste relevant lines from decisions-plugin.jsonl with secrets removed."
+      render: json
+  - type: textarea
+    id: repro
+    attributes: { label: "Steps to reproduce", placeholder: "1. ... 2. ..." }

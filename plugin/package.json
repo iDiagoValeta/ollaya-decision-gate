@@ -1,0 +1,15 @@
+{
+  "name": "ollaya-decision-gate-plugin",
+  "version": "0.3.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "tsc -p tsconfig.build.json && node --test dist/index.test.js"
+  },
+  "dependencies": {
+    "@opencode/plugin": "2.0.11"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.0"
+  }
+}

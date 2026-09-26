@@ -1,0 +1,45 @@
+name: ci
+on: [push, pull_request]
+permissions: read-all
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with: { python-version: "${{ matrix.python-version }}" }
+      - run: python -m pip install -e ".[dev]"
+      - run: python -m pytest -q
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with: { python-version: "3.12" }
+      - run: pip install ruff
+      - run: ruff check src tests scripts
+  sast:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with: { python-version: "3.12" }
+      - run: pip install bandit
+      # --severity-level medium: skips this codebase's known, reasoned LOW
+      # findings (try/except/pass fail-open pattern, doctor.py's fixed-
+      # argument subprocess calls with no shell=True, the doctor.py
+      # self-test assert) — same call already made for ruff's bandit
+      # rules in pyproject.toml. A real medium/high finding still fails.
+      - run: bandit -r src scripts --severity-level medium
+  ts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: { node-version: 20 }
+      - run: npm --prefix plugin ci
+      - run: npm --prefix plugin exec --no -- tsc --noEmit -p plugin/ollaya-decision-gate
+      - run: npm --prefix plugin test

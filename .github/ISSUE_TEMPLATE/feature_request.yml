@@ -1,0 +1,19 @@
+name: Feature request
+description: New halt kind, use case, or install improvement.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes: { label: "Problem", placeholder: "What decision is Jev getting wrong today?" }
+    validations: { required: true }
+  - type: textarea
+    id: solution
+    attributes: { label: "Proposed solution" }
+  - type: dropdown
+    id: halt
+    attributes:
+      label: "Halt kind affected"
+      options: [read, write, destructive, multichoice, install/dx, observability, other]
+  - type: textarea
+    id: alternatives
+    attributes: { label: "Alternatives considered" }
