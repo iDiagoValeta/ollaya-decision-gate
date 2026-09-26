@@ -7,7 +7,7 @@ prompts a session and deliberately does NOT reply to permission.asked.
 The ollaya-decision-gate plugin must own allow/deny and question answers.
 
 Usage:
-  source ~/.config/opencode/secrets.env   # TYPESAFE_API_KEY for the plugin
+  ollaya serve &                           # the local daemon the plugin calls
   opencode service start
   python3 scripts/verify_autonomy.py
 """

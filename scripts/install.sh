@@ -87,6 +87,6 @@ print(f"wrote {config_path}")
 EOF
 
 echo "==> verify"
-TYPESAFE_API_KEY="${TYPESAFE_API_KEY:-}" OLLAYA_GATE_LOG="$LOG_FILE" \
+OLLAYA_GATE_LOG="$LOG_FILE" \
   python3 -m ollaya_gate.doctor || echo "WARN: doctor found issues (see above)" >&2
 echo "Done. Log: $LOG_FILE"
