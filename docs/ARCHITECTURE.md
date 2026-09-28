@@ -250,21 +250,40 @@ Live autonomy check (non-interactive, against a running service):
   `curl|wget`, so a read-only `curl -s URL` scored identically to
   `rm -rf /`: measured live, removing that unconditional match moved
   the model's own safe/risk numbers for that exact command from
-  0.29/1.5 to 0.70/0.5. `hasDestructiveCurlOrWget` (`index.ts`) now
-  looks for a write/output flag (`-o`, `-O`, `--output`, `--remote-name`),
-  a body-sending flag (`-d`, `--data*`, `-F`, `--form`, `-T`,
-  `--upload-file`), a non-GET/HEAD `-X`/`--request` method, or another
-  pipeline segment that is an interpreter (`sh`, `bash`, `zsh`, `python`,
-  `python3`, `node`, `perl`, `ruby`, or any `sudo ...`). OpenCode may hand
-  a piped bash command as one resource per segment
-  (`["curl -s URL", "sh"]`) or as a single string (`"curl -s URL | sh"`),
-  so every resource is also split on `|` before the check. `kindFor`
-  falls to `read` for a fetch that clears this check (not the generic
-  write default), and both `kindFor` and the risk-hint computation in
-  `evaluatePermission`/`handleOne` call the same function, so the two
-  never drift apart. The kill-list is untouched: a `curl`/`wget` piped
-  straight into a shell already matches a kill-list pattern and is denied
-  before `kindFor` ever runs.
+  0.29/1.5 to 0.70/0.5. `hasDestructiveCurlOrWget` (`index.ts`) looks for:
+  a write/output flag (`-o`, `-O`, `--output`, `--remote-name`), a
+  body-sending flag (`-d`, `--data*`, `-F`, `--form`, `-T`,
+  `--upload-file`, `--json`), a non-GET/HEAD `-X`/`--request` method, a
+  redirection to a real file anywhere in the command (`>`, `>>`, but not
+  fd duplication like `2>&1` or anything sent to `/dev/null`), a pipe into
+  `tee` with a file argument, or another pipeline segment that is an
+  interpreter (`sh`, `bash`, `zsh`, `python`, `python3`, `node`, `perl`,
+  `ruby`, or any `sudo ...`). OpenCode may hand a piped bash command as
+  one resource per segment (`["curl -s URL", "sh"]`) or as a single
+  string (`"curl -s URL | sh"`), so every resource is also split on `|`
+  before the check. `kindFor` falls to `read` for a fetch that clears
+  this check (not the generic write default), and both `kindFor` and the
+  risk-hint computation in `evaluatePermission`/`handleOne` call the same
+  function, so the two never drift apart. The kill-list is untouched: a
+  `curl`/`wget` piped straight into a shell already matches a kill-list
+  pattern and is denied before `kindFor` ever runs.
+
+  A flag-by-flag regex misses curl's getopt-style short-flag clustering
+  (`-sLo file URL` is `-s -L -o file URL`), which let a write flag bundled
+  with harmless ones slip through as a read: the inverse of the bug above,
+  a command that DOES write scored as safe. Each short-flag cluster is
+  now scanned letter by letter, case-sensitively: lowercase `o` and
+  uppercase `O` both mean curl's file-output flag, lowercase `d` is
+  `--data`, uppercase `F` is `--form`, uppercase `T` is `--upload-file`;
+  none of them share a letter with common boolean flags like `-s`, `-S`,
+  `-L`, `-f`, `-I`. `-o`/`--output` take an explicit filename and can
+  target stdout with `-` (`curl -o -`, `-so-`, attached or as its own
+  token), which is not a write; `-O`/`--remote-name` take no argument and
+  always write a file named from the URL, so curl has no stdout form of
+  it. `wget` inverts curl's own default: it saves to disk unless told
+  otherwise, so a bare `wget URL` is a write, and only an explicit stdout
+  target (`-O-`, `-qO-`, `-O -`, `--output-document=-`) or `--spider`
+  (checks the URL, downloads nothing) keep it a read.
 - **grep/glob/list get their path back before the model sees them.**
   On opencode 2.0.x, a `grep`/`glob` permission's `resources` carries
   only the search pattern (e.g. a grep's `resources` is just the regex,
