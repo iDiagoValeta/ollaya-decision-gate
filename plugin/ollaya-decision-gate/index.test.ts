@@ -17,6 +17,7 @@ import OllayaGate, {
   formListPath,
   handleFormAsked,
   handleOne,
+  hasDestructiveCurlOrWget,
   isCatastrophic,
   isRetryableGateError,
   kindFor,
@@ -24,6 +25,7 @@ import OllayaGate, {
   labelsFromFormField,
   listPendingForms,
   looksLikeSessionGone,
+  metadataDetailFor,
   normalizeCommand,
   OMITTED_MARK,
   postApiReply,
@@ -284,7 +286,27 @@ test("kindFor: covers write-default and read-class mappings not yet asserted", (
 test("kindFor: additional DESTRUCTIVE_HINT alternatives map to destructive", () => {
   assert.equal(kindFor("bash", ["git reset --hard HEAD"]), "destructive")
   assert.equal(kindFor("bash", ["npm publish"]), "destructive")
-  assert.equal(kindFor("bash", ["curl https://example.com"]), "destructive")
+})
+
+test("kindFor: a plain read-only curl/wget is 'read', not 'destructive' (issue: a bare curl|wget match used to score a GET the same as rm -rf)", () => {
+  assert.equal(kindFor("bash", ["curl https://example.com"]), "read")
+  assert.equal(kindFor("bash", ["curl -s https://example.com"]), "read")
+  assert.equal(kindFor("bash", ["wget https://example.com"]), "read")
+})
+
+test("kindFor: curl/wget become destructive once they write, send a body, use a non-GET/HEAD method, or pipe into an interpreter", () => {
+  assert.equal(kindFor("bash", ["curl -o /tmp/x https://example.com"]), "destructive")
+  assert.equal(kindFor("bash", ["curl -d payload https://example.com"]), "destructive")
+  assert.equal(kindFor("bash", ["curl -X POST https://example.com"]), "destructive")
+  assert.equal(kindFor("bash", ["curl -s https://example.com", "sh"]), "destructive")
+  assert.equal(kindFor("bash", ["wget -O- https://example.com | bash"]), "destructive")
+  // A method flag whose value IS GET/HEAD stays read (explicit, not just default).
+  assert.equal(kindFor("bash", ["curl -X GET https://example.com"]), "read")
+})
+
+test("hasDestructiveCurlOrWget: no fetch anywhere in the resources is never flagged", () => {
+  assert.equal(hasDestructiveCurlOrWget(["ls -la"]), false)
+  assert.equal(hasDestructiveCurlOrWget([]), false)
 })
 
 test("claimReply: first claim wins, a second claim on the same requestID loses", () => {
@@ -1546,6 +1568,138 @@ test("evaluatePermission: an edit's patch reaches the model's detail, redacted",
   assert.match(detail, /--- patch for config\.py ---/)
   assert.match(detail, /\+DEBUG=1/)
   assert.doesNotMatch(detail, /sk-abcdefghijklmnop/)
+})
+
+test("metadataDetailFor: grep/glob/list metadata path and include become model-only detail lines; other actions and shapes are null", () => {
+  assert.equal(metadataDetailFor("grep", { path: ".dev/research/guard-models.md" }), "path: .dev/research/guard-models.md")
+  assert.equal(metadataDetailFor("glob", { path: "docs", include: "*.md" }), "path: docs\ninclude: *.md")
+  assert.equal(metadataDetailFor("list", { path: "src" }), "path: src")
+  // Only the documented grep/glob/list actions are enriched: a read or edit
+  // permission's metadata (e.g. edit's own metadata.files) must not leak in
+  // through this path.
+  assert.equal(metadataDetailFor("read", { path: "src/app.py" }), null)
+  assert.equal(metadataDetailFor("grep", undefined), null)
+  assert.equal(metadataDetailFor("grep", "not-an-object"), null)
+  assert.equal(metadataDetailFor("grep", {}), null)
+})
+
+test("evaluatePermission: a grep permission's bare pattern gets metadata.path appended to the model's detail, but kindFor/resources stay pattern-only (opencode's own resources for grep carry only the pattern, never the path)", async () => {
+  let sent: Record<string, unknown> | null = null
+  let kindForResources: string[] | null = null
+  const deps: EvaluateDeps = {
+    runGate: async (_o, ev) => {
+      sent = ev
+      return { decision: { action: "allow", reason: "model-allow" }, retried: false }
+    },
+    objectiveFor: async () => "obj",
+    kindFor: (action, resources) => {
+      kindForResources = resources
+      return kindFor(action, resources)
+    },
+    redactSecrets,
+    sha256Hex,
+    isCatastrophic,
+    subagentDetailFor: async () => null,
+    resourceKinds: () => "text",
+    DESTRUCTIVE_HINT: /$^/,
+    COMMAND_SUBSTITUTION: /$^/,
+    objectiveBudgetOf: () => 4000,
+    ctx: { session: { context: async () => [] } },
+    log: () => {},
+    options: {},
+    endedSessions: new Set(),
+    inst: "i",
+  }
+  const input = {
+    sessionID: "s",
+    action: "grep",
+    resources: ["[—–]"],
+    metadata: { path: ".dev/research/guard-models.md" },
+    effect: "ask" as const,
+  }
+  await evaluatePermission(deps, input)
+  const detail = String(((sent as unknown as { halt: { detail: string } }).halt).detail)
+  assert.match(detail, /\[—–\]/)
+  assert.match(detail, /path: \.dev\/research\/guard-models\.md/)
+  // kill-list/kindFor evaluate the ORIGINAL resources, never the enriched detail.
+  assert.deepEqual(kindForResources, ["[—–]"])
+})
+
+test("evaluatePermission: a glob permission's metadata.path/include also reach the model's detail", async () => {
+  let sent: Record<string, unknown> | null = null
+  const deps: EvaluateDeps = {
+    runGate: async (_o, ev) => {
+      sent = ev
+      return { decision: { action: "allow", reason: "model-allow" }, retried: false }
+    },
+    objectiveFor: async () => "obj",
+    kindFor,
+    redactSecrets,
+    sha256Hex,
+    isCatastrophic,
+    subagentDetailFor: async () => null,
+    resourceKinds: () => "text",
+    DESTRUCTIVE_HINT: /$^/,
+    COMMAND_SUBSTITUTION: /$^/,
+    objectiveBudgetOf: () => 4000,
+    ctx: { session: { context: async () => [] } },
+    log: () => {},
+    options: {},
+    endedSessions: new Set(),
+    inst: "i",
+  }
+  const input = {
+    sessionID: "s",
+    action: "glob",
+    resources: ["*.md"],
+    metadata: { path: "docs" },
+    effect: "ask" as const,
+  }
+  await evaluatePermission(deps, input)
+  const detail = String(((sent as unknown as { halt: { detail: string } }).halt).detail)
+  assert.match(detail, /\*\.md/)
+  assert.match(detail, /path: docs/)
+})
+
+test("handleOne: the permission.asked fallback path also appends grep/glob metadata.path to the model's detail (same enrichment as the evaluate hook)", async () => {
+  const gateDir = fs.mkdtempSync(path.join(os.tmpdir(), "ollaya-grep-metadata-"))
+  const capturedEventPath = path.join(gateDir, "captured-event.json")
+  const fakePython = path.join(gateDir, "fake_python.py")
+  fs.writeFileSync(
+    fakePython,
+    [
+      "#!/usr/bin/env python3",
+      "import sys, json",
+      "data = sys.stdin.read()",
+      `open(${JSON.stringify(capturedEventPath)}, "w").write(data)`,
+      'print(json.dumps({"action": "allow", "reason": "test", "confidence": 0.9, "model": "test"}))',
+      "",
+    ].join("\n"),
+    { mode: 0o755 },
+  )
+  try {
+    const ctx = { session: { get: async () => ({}), context: async () => [] } }
+    const options = { gateDir, pythonBin: fakePython }
+    const out = await handleOne(
+      ctx,
+      () => {},
+      "inst1",
+      options,
+      "sess1",
+      "req1",
+      "grep",
+      ["TODO"],
+      new Set(),
+      null,
+      { path: "src/ollaya_gate" },
+    )
+    assert.equal(out.decision, "allow")
+    const sent = JSON.parse(fs.readFileSync(capturedEventPath, "utf8"))
+    assert.match(sent.halt.detail, /TODO/)
+    assert.match(sent.halt.detail, /path: src\/ollaya_gate/)
+  } finally {
+    fs.rmSync(gateDir, { recursive: true, force: true })
+  }
 })
 
 test("formListPath: no directory lists the bare form endpoint (current behavior fallback)", () => {
