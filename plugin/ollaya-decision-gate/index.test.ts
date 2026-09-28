@@ -288,10 +288,9 @@ test("kindFor: additional DESTRUCTIVE_HINT alternatives map to destructive", () 
   assert.equal(kindFor("bash", ["npm publish"]), "destructive")
 })
 
-test("kindFor: a plain read-only curl/wget is 'read', not 'destructive' (issue: a bare curl|wget match used to score a GET the same as rm -rf)", () => {
+test("kindFor: a plain read-only curl is 'read', not 'destructive' (issue: a bare curl|wget match used to score a GET the same as rm -rf)", () => {
   assert.equal(kindFor("bash", ["curl https://example.com"]), "read")
   assert.equal(kindFor("bash", ["curl -s https://example.com"]), "read")
-  assert.equal(kindFor("bash", ["wget https://example.com"]), "read")
 })
 
 test("kindFor: curl/wget become destructive once they write, send a body, use a non-GET/HEAD method, or pipe into an interpreter", () => {
@@ -307,6 +306,61 @@ test("kindFor: curl/wget become destructive once they write, send a body, use a 
 test("hasDestructiveCurlOrWget: no fetch anywhere in the resources is never flagged", () => {
   assert.equal(hasDestructiveCurlOrWget(["ls -la"]), false)
   assert.equal(hasDestructiveCurlOrWget([]), false)
+})
+
+// A follow-up bug in the fix above: curl's short flags cluster
+// getopt-style (`-sLo` is `-s -L -o`), so a flag-by-flag regex missed a
+// write flag bundled with harmless ones. This inverts the original bug:
+// a command that DOES write was scored as a safe read.
+test("hasDestructiveCurlOrWget: a write flag bundled into a combined short-flag cluster still counts (curl -sLo, -fsSLo, -sd, -sT)", () => {
+  assert.equal(hasDestructiveCurlOrWget(["curl -sLo ~/.bashrc https://example.com"]), true)
+  assert.equal(hasDestructiveCurlOrWget(["curl -fsSLo f https://example.com"]), true)
+  assert.equal(hasDestructiveCurlOrWget(["curl -sd x https://example.com"]), true)
+  assert.equal(hasDestructiveCurlOrWget(["curl -sT f https://example.com"]), true)
+})
+
+test("hasDestructiveCurlOrWget: an output flag that targets stdout ('-') is not a write, bundled or not", () => {
+  assert.equal(hasDestructiveCurlOrWget(["curl -o - https://example.com"]), false)
+  assert.equal(hasDestructiveCurlOrWget(["curl -so- https://example.com"]), false)
+})
+
+test("hasDestructiveCurlOrWget: wget saves to disk by default (unlike curl), so a bare wget URL is a write", () => {
+  assert.equal(hasDestructiveCurlOrWget(["wget https://example.com"]), true)
+  assert.equal(kindFor("bash", ["wget https://example.com"]), "destructive")
+})
+
+test("hasDestructiveCurlOrWget: wget stays a read when it explicitly targets stdout or only checks the URL (--spider)", () => {
+  assert.equal(hasDestructiveCurlOrWget(["wget -O- https://example.com"]), false)
+  assert.equal(hasDestructiveCurlOrWget(["wget -qO- https://example.com"]), false)
+  assert.equal(hasDestructiveCurlOrWget(["wget -O - https://example.com"]), false)
+  assert.equal(hasDestructiveCurlOrWget(["wget --output-document=- https://example.com"]), false)
+  assert.equal(hasDestructiveCurlOrWget(["wget --spider https://example.com"]), false)
+})
+
+test("hasDestructiveCurlOrWget: a redirection to a real file is a write with no curl/wget flag involved, but fd duplication and /dev/null are not", () => {
+  assert.equal(hasDestructiveCurlOrWget(["curl -s https://example.com > f"]), true)
+  assert.equal(hasDestructiveCurlOrWget(["curl -s https://example.com >> f"]), true)
+  assert.equal(hasDestructiveCurlOrWget(["curl -s https://example.com >f"]), true)
+  assert.equal(hasDestructiveCurlOrWget(["curl -s https://example.com 2>/dev/null"]), false)
+  assert.equal(hasDestructiveCurlOrWget(["curl -s https://example.com >/dev/null"]), false)
+  assert.equal(hasDestructiveCurlOrWget(["curl -s https://example.com &>/dev/null"]), false)
+  assert.equal(hasDestructiveCurlOrWget(["curl -s https://example.com 2>&1"]), false)
+})
+
+test("hasDestructiveCurlOrWget: piping into tee with a file argument writes just like -o would", () => {
+  assert.equal(hasDestructiveCurlOrWget(["curl -s https://example.com", "tee f"]), true)
+  assert.equal(hasDestructiveCurlOrWget(["curl -s https://example.com | tee f"]), true)
+})
+
+test("hasDestructiveCurlOrWget: --json sends a request body", () => {
+  assert.equal(hasDestructiveCurlOrWget(["curl --json '{\"a\":1}' https://example.com"]), true)
+})
+
+test("hasDestructiveCurlOrWget: still a read when piped into a non-interpreter filter, or given a harmless method flag", () => {
+  assert.equal(hasDestructiveCurlOrWget(["curl -s https://example.com", "head -5"]), false)
+  assert.equal(hasDestructiveCurlOrWget(["curl -sSL https://example.com", "grep x"]), false)
+  assert.equal(hasDestructiveCurlOrWget(["curl -I https://example.com"]), false)
+  assert.equal(hasDestructiveCurlOrWget(["curl -X GET https://example.com"]), false)
 })
 
 test("claimReply: first claim wins, a second claim on the same requestID loses", () => {

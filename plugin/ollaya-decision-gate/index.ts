@@ -68,8 +68,41 @@ const DESTRUCTIVE_HINT = /(^|\s)(rm\s+-rf|sudo|git\s+push|git\s+reset\s+--hard|g
 // `["curl -s URL", "sh"]`), so every resource is checked; each resource is
 // also split on "|" in case a single resource still holds the whole
 // pipeline as one string.
-const CURL_WGET_WRITE_FLAGS = /(^|\s)(-o\b|-O\b|--output\b|--remote-name\b|-d\b|--data(-[a-z]+)?\b|-F\b|--form\b|-T\b|--upload-file\b)/
-const PIPELINE_INTERPRETER = /(^|\s)(sudo\b|sh\b|bash\b|zsh\b|python3?\b|node\b|perl\b|ruby\b)/i
+//
+// Bundled short flags (getopt-style clustering, e.g. `-sLo` is -s -L -o)
+// are invisible to a flag-by-flag regex, so each short-flag cluster is
+// scanned letter by letter. The letters are checked case-sensitively on
+// purpose: curl's -o/-O/-d/-F/-T share no letters with common boolean
+// flags like -s/-S/-L/-f/-I.
+//   o (lower): --output, takes an explicit filename and can target
+//              stdout via "-" (`curl -o -` / `-so-`), which is not a
+//              write.
+//   O (upper): --remote-name, takes no argument and always writes to a
+//              file named from the URL; curl has no stdout form of it.
+//   d (lower): --data*, sends a request body.
+//   F (upper): --form, sends a request body.
+//   T (upper): --upload-file, uploads a file.
+const CURL_SHORT_CLUSTER = /(^|\s)-([a-zA-Z]+)/g
+
+// True when the text right after a value-taking flag is the stdout marker
+// "-", attached ("-o-") or as its own next token ("-o -" / "-o - url").
+function targetsStdout(rest: string): boolean {
+  return /^\s*-(?=\s|$)/.test(rest)
+}
+
+function curlClusterIsWrite(segment: string): boolean {
+  CURL_SHORT_CLUSTER.lastIndex = 0
+  let m: RegExpExecArray | null
+  while ((m = CURL_SHORT_CLUSTER.exec(segment)) !== null) {
+    const letters = m[2]
+    if (/[dFT]/.test(letters) || letters.includes("O")) return true
+    if (letters.includes("o") && !targetsStdout(segment.slice(m.index + m[0].length))) return true
+  }
+  return false
+}
+
+const CURL_LONG_WRITE_FLAGS = /(^|\s)(--remote-name\b|--data(-[a-z]+)?\b|--form\b|--upload-file\b|--json\b)/
+const CURL_OUTPUT_LONG = /(^|\s)--output(?:=|\s+)(\S*)/
 
 function curlMethodIsWrite(segment: string): boolean {
   const m = segment.match(/(?:-X|--request)[ =]+["']?([A-Za-z]+)/i)
@@ -78,11 +111,55 @@ function curlMethodIsWrite(segment: string): boolean {
   return method !== "GET" && method !== "HEAD"
 }
 
+function curlWrites(segment: string): boolean {
+  if (curlClusterIsWrite(segment)) return true
+  if (CURL_LONG_WRITE_FLAGS.test(segment)) return true
+  const outputMatch = CURL_OUTPUT_LONG.exec(segment)
+  if (outputMatch && outputMatch[2] !== "-") return true
+  return curlMethodIsWrite(segment)
+}
+
+// wget saves to disk by default, the opposite default from curl (which
+// prints to stdout unless told otherwise): only an explicit stdout target
+// or --spider (checks the URL, downloads nothing) keep it a read.
+const WGET_STDOUT_SHORT_ATTACHED = /-[a-zA-Z]*O-(?!\S)/
+const WGET_STDOUT_SHORT_SPACED = /-[a-zA-Z]*O\s+-(?=\s|$)/
+const WGET_STDOUT_LONG = /--output-document(?:=|\s+)-(?=\s|$)/
+const WGET_SPIDER = /--spider\b/
+
+function wgetWrites(segment: string): boolean {
+  if (WGET_SPIDER.test(segment)) return false
+  const stdout =
+    WGET_STDOUT_SHORT_ATTACHED.test(segment) || WGET_STDOUT_SHORT_SPACED.test(segment) || WGET_STDOUT_LONG.test(segment)
+  return !stdout
+}
+
+const PIPELINE_INTERPRETER = /(^|\s)(sudo\b|sh\b|bash\b|zsh\b|python3?\b|node\b|perl\b|ruby\b)/i
+
+// A redirection to a real file anywhere in the command is a write, even
+// with no curl/wget flag involved (`curl -s URL > out.json`). fd
+// duplication (`2>&1`) and anything sent to /dev/null are not writes.
+const FILE_REDIRECT = /(?:^|\s)&?\d*>{1,2}(?!&)\s*(\S*)/g
+function hasFileRedirect(segment: string): boolean {
+  FILE_REDIRECT.lastIndex = 0
+  let m: RegExpExecArray | null
+  while ((m = FILE_REDIRECT.exec(segment)) !== null) {
+    const target = m[1].toLowerCase()
+    if (target && target !== "/dev/null") return true
+  }
+  return false
+}
+
+// `curl ... | tee out.txt` writes just as much as `curl -o out.txt ...`.
+const TEE_WITH_FILE = /\btee\b\s+\S+/
+
 export function hasDestructiveCurlOrWget(resources: readonly string[]): boolean {
   const segments = resources.flatMap((r) => r.split("|"))
   const fetchSegments = segments.filter((s) => /\b(curl|wget)\b/i.test(s))
   if (fetchSegments.length === 0) return false
-  if (fetchSegments.some((s) => CURL_WGET_WRITE_FLAGS.test(s) || curlMethodIsWrite(s))) return true
+  if (segments.some((s) => hasFileRedirect(s))) return true
+  if (segments.some((s) => TEE_WITH_FILE.test(s))) return true
+  if (fetchSegments.some((s) => (/\bwget\b/i.test(s) ? wgetWrites(s) : curlWrites(s)))) return true
   return segments.some((s) => !/\b(curl|wget)\b/i.test(s) && PIPELINE_INTERPRETER.test(s))
 }
 
