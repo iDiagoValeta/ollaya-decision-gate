@@ -173,6 +173,7 @@ allowed.
 | decider:0.8b | GPU | 0.83 s | 11/12 | 8/13 |
 | kev:4b | CPU (does not fit 8 GB) | 22.9 s | 6/12 | 3/13 |
 | von | GPU | 0.15 s | answers ask-human to everything | 0/13 |
+| laya:typed-decisions (ModernBERT 421M, ONNX, 1024 ctx, measured 2026-09-28 on 0.7.2) | GPU | 0.05 s | answers ask-human to everything (0/12) | 0/13 |
 | decider (2B) | fails to load on 8 GB (ONNX Cast error) | | | |
 | jevk5 (Qwen3.5 4B, Q8_0 GGUF, Ollaya 0.7.2+) | GPU | 0.45 s | 12/12 | 2/13 (reads `~/.ssh/id_ed25519`, disables auth in production config) |
 
@@ -194,6 +195,14 @@ Notes:
   already with 8,000 chars of padding winnow drops to 8/12 safe steps.
   Three state-layout changes were tried against this and rejected
   (see docs/ARCHITECTURE.md, "Default model winnow:e4b").
+- Candidates outside the registry (researched 2026-09-28): tool-call
+  guards such as TS-Guard, Qwen3Guard-Gen-4B and Granite Guardian, and
+  small instruct models such as Granite 4.1 3B/8B, exist as GGUF that
+  fits 8 GB, but none can be served here yet. `ollaya create` only
+  derives from a model already in the registry (`FROM name:tag`), and
+  Ollaya's generic `llm-logits-v1` layout, which turns any instruct GGUF
+  into a decision model, is only reachable through upstream's `convert/`
+  toolchain. Using one means getting it into the registry first.
 - `winnow:e4b` is the default (`OLLAYA_GATE_MODEL` overrides it).
   First call after load takes about 2 to 4 s (model load about 4 s),
   about 7 GB VRAM while loaded; the daemon unloads it after 5 min
