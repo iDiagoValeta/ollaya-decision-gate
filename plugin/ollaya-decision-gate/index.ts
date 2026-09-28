@@ -54,7 +54,37 @@ const CATASTROPHIC = [
   /\bdrop\s+(table|database)\b/i,
 ]
 
-const DESTRUCTIVE_HINT = /(^|\s)(rm\s+-rf|sudo|git\s+push|git\s+reset\s+--hard|git\s+clean\s+-fd?|kubectl\s+delete|terraform\s+(apply|destroy)|npm\s+publish|cargo\s+publish|drop\s+(table|database)|curl|wget|docker\s+(rm|system)|aws\s+s3)/i
+const DESTRUCTIVE_HINT = /(^|\s)(rm\s+-rf|sudo|git\s+push|git\s+reset\s+--hard|git\s+clean\s+-fd?|kubectl\s+delete|terraform\s+(apply|destroy)|npm\s+publish|cargo\s+publish|drop\s+(table|database)|docker\s+(rm|system)|aws\s+s3)/i
+
+// curl/wget used to be an unconditional DESTRUCTIVE_HINT match, so a
+// read-only `curl -s URL` scored the same as `rm -rf /`: measured live,
+// the model's own safe/risk numbers moved from 0.29/1.5 to 0.70/0.5 once
+// the hint was removed for that exact command. They now count as
+// destructive only when they write to disk, send a request body, use a
+// non-idempotent method, or when another segment of the same pipeline is
+// an interpreter (a fetch piped straight into a shell has an effect no
+// static check can determine). opencode splits a piped bash command into
+// one resource per pipeline segment (`curl -s URL | sh` arrives as
+// `["curl -s URL", "sh"]`), so every resource is checked; each resource is
+// also split on "|" in case a single resource still holds the whole
+// pipeline as one string.
+const CURL_WGET_WRITE_FLAGS = /(^|\s)(-o\b|-O\b|--output\b|--remote-name\b|-d\b|--data(-[a-z]+)?\b|-F\b|--form\b|-T\b|--upload-file\b)/
+const PIPELINE_INTERPRETER = /(^|\s)(sudo\b|sh\b|bash\b|zsh\b|python3?\b|node\b|perl\b|ruby\b)/i
+
+function curlMethodIsWrite(segment: string): boolean {
+  const m = segment.match(/(?:-X|--request)[ =]+["']?([A-Za-z]+)/i)
+  if (!m) return false
+  const method = m[1].toUpperCase()
+  return method !== "GET" && method !== "HEAD"
+}
+
+export function hasDestructiveCurlOrWget(resources: readonly string[]): boolean {
+  const segments = resources.flatMap((r) => r.split("|"))
+  const fetchSegments = segments.filter((s) => /\b(curl|wget)\b/i.test(s))
+  if (fetchSegments.length === 0) return false
+  if (fetchSegments.some((s) => CURL_WGET_WRITE_FLAGS.test(s) || curlMethodIsWrite(s))) return true
+  return segments.some((s) => !/\b(curl|wget)\b/i.test(s) && PIPELINE_INTERPRETER.test(s))
+}
 
 // Command substitution ($(...) or `...`) can hide a command's real effect
 // from both the kill-list and normalizeCommand (neither evaluates it),
@@ -243,7 +273,8 @@ export function kindFor(action: string, resources: string[]): string {
   if (action === "doom_loop") return "destructive"
   if (READ_ACTIONS.has(action)) return "read"
   const text = resources.join("\n")
-  if (DESTRUCTIVE_HINT.test(text)) return "destructive"
+  if (DESTRUCTIVE_HINT.test(text) || hasDestructiveCurlOrWget(resources)) return "destructive"
+  if (/\b(curl|wget)\b/i.test(text)) return "read"
   return "write"
 }
 
@@ -949,6 +980,26 @@ export function editPatchesOf(metadata: unknown): string | null {
   return parts.length ? parts.join("\n") : null
 }
 
+// grep/glob permissions on opencode 2.0.x carry only the search pattern in
+// `resources` (e.g. a grep permission's resources is just `[a-z]+`, never
+// the path being searched); the target path lives in metadata instead
+// (metadata.path is documented for glob; grep's real shape is confirmed
+// live against a running opencode service). Without it the model judges a
+// bare pattern with no path and defaults to ask-human: adding the path
+// measurably moved one such case from ask-human to allow. Model payload
+// only, like editPatchesOf above: kill-list and kindFor keep evaluating
+// resources, unchanged.
+const METADATA_DETAIL_KEYS = ["path", "include", "glob"] as const
+export function metadataDetailFor(action: string, metadata: unknown): string | null {
+  if (action !== "grep" && action !== "glob" && action !== "list") return null
+  if (!metadata || typeof metadata !== "object") return null
+  const m = metadata as Record<string, unknown>
+  const lines = METADATA_DETAIL_KEYS.filter((key) => typeof m[key] === "string" && m[key]).map(
+    (key) => `${key}: ${m[key] as string}`,
+  )
+  return lines.length ? lines.join("\n") : null
+}
+
 /**
  * Dependencies injected into evaluatePermission for testability.
  */
@@ -1063,10 +1114,12 @@ export async function evaluatePermission(
     // just the path): without it the model would judge every write blind. Only
     // the model payload gets it; the kill-list and kindFor stay on resources.
     const patches = editPatchesOf(input.metadata);
-    const detail = clipHeadTail(deps.redactSecrets(patches ? `${joined}\n${patches}` : joined), DETAIL_MAX_CHARS);
+    const metaDetail = metadataDetailFor(action, input.metadata);
+    const extra = [patches, metaDetail].filter((x): x is string => !!x).join("\n");
+    const detail = clipHeadTail(deps.redactSecrets(extra ? `${joined}\n${extra}` : joined), DETAIL_MAX_CHARS);
     const hintParts: string[] = [];
     if (action === "doom_loop") hintParts.push("doom_loop: identical tool call repeated");
-    if (deps.DESTRUCTIVE_HINT.test(joined)) hintParts.push("matches destructive-hint");
+    if (deps.DESTRUCTIVE_HINT.test(joined) || hasDestructiveCurlOrWget(mutableResources)) hintParts.push("matches destructive-hint");
     if (deps.COMMAND_SUBSTITUTION.test(joined)) hintParts.push("contains command substitution ($(...) or `...`); real effect cannot be statically determined");
     if (detail.includes(OMITTED_MARK)) hintParts.push("detail too long: middle omitted, judge head and tail");
     const riskHints = hintParts.join("; ");
@@ -1628,6 +1681,7 @@ export default Plugin.define({
         const resources = Array.isArray((data as { resources?: unknown }).resources)
           ? ((data as { resources: unknown[] }).resources.map(String))
           : []
+        const metadata = (data as { metadata?: unknown }).metadata
         const source = ((): PermissionSource | null => {
           const s = (data as { source?: unknown }).source
           if (!s || typeof s !== "object") return null
@@ -1680,7 +1734,7 @@ export default Plugin.define({
           continue
         }
 
-        const task = handleOne(ctx, logEv, inst, options, sessionID, requestID, action, resources, endedSessions, source)
+        const task = handleOne(ctx, logEv, inst, options, sessionID, requestID, action, resources, endedSessions, source, metadata)
         inFlight.set(requestID, task)
         try {
           const outcome = await task
@@ -2003,6 +2057,7 @@ export async function handleOne(
   resources: string[],
   endedSessions: Set<string>,
   source?: PermissionSource | null,
+  metadata?: unknown,
 ): Promise<{ decision: string; repliedOk: boolean }> {
   // From permission.asked to whenever we attempt (or give up on) a reply,
   // diagnoses the reply-vs-server-window race, distinct from
@@ -2122,10 +2177,11 @@ export async function handleOne(
       gate.cancel()
       throw err
     }
-    const detail = clipHeadTail(redactSecrets(joined), DETAIL_MAX_CHARS)
+    const metaDetail = metadataDetailFor(action, metadata)
+    const detail = clipHeadTail(redactSecrets(metaDetail ? `${joined}\n${metaDetail}` : joined), DETAIL_MAX_CHARS)
     const hintParts: string[] = []
     if (action === "doom_loop") hintParts.push("doom_loop: identical tool call repeated")
-    if (DESTRUCTIVE_HINT.test(joined)) hintParts.push("matches destructive-hint")
+    if (DESTRUCTIVE_HINT.test(joined) || hasDestructiveCurlOrWget(resources)) hintParts.push("matches destructive-hint")
     if (COMMAND_SUBSTITUTION.test(joined)) hintParts.push("contains command substitution ($(...) or `...`); real effect cannot be statically determined")
     if (detail.includes(OMITTED_MARK)) hintParts.push("detail too long: middle omitted, judge head and tail")
     const riskHints = hintParts.join("; ")
