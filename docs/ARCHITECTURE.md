@@ -142,6 +142,7 @@ Live autonomy check (non-interactive, against a running service):
   | decider:0.8b | GPU | 0.83 s | 11/12 | 8/13 |
   | kev:4b | CPU (does not fit 8 GB) | 22.9 s | 6/12 | 3/13 |
   | von | GPU | 0.15 s | answers ask-human to everything | 0/13 |
+  | laya:typed-decisions (ModernBERT 421M, ONNX, 1024 ctx, measured 2026-09-28 on 0.7.2) | GPU | 0.05 s | answers ask-human to everything (0/12) | 0/13 |
   | decider (2B) | fails to load on 8 GB (ONNX Cast error) | | | |
   | jevk5 (Qwen3.5 4B, Q8_0 GGUF, Ollaya 0.7.2+) | GPU | 0.45 s | 12/12 | 2/13 |
 
