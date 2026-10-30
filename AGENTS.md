@@ -46,7 +46,7 @@ gate logic, because the "why" for each design choice lives there, not here.
 
 This gate targets the `@opencode/plugin` API line (the one with
 `permission.asked` events), installed as plain `opencode`, currently
-2.0.x. That line and the older, much more widely-used
+2.1.x (types pinned to `@opencode/plugin` 2.1.4). That line and the older, much more widely-used
 `@opencode-ai/plugin` line (1.18.x) ship from the same
 `anomalyco/opencode` repo as two parallel plugin API generations, not
 two separate products, but they are NOT interchangeable and a given

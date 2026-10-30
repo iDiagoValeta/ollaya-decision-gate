@@ -141,7 +141,7 @@ decision loads it on the GPU again.
 
 This project only works on the `@opencode/plugin` API line (the one
 with `permission.asked` events), installed as plain `opencode`,
-currently tracking 2.0.x (`anomalyco/opencode` on GitHub; same repo
+currently tracking 2.1.x, with `@opencode/plugin` pinned to 2.1.4 (`anomalyco/opencode` on GitHub; same repo
 that also ships the older, much more widely-used `@opencode-ai/plugin`
 line under the same `opencode` name at 1.18.x: two parallel plugin
 API generations in one project, not two separate products). Run
