@@ -1,5 +1,7 @@
 # ollaya-decision-gate
 
+> **Context.** Built in September 2026 as a personal project, with Claude Code, at the point where my time as Technical Lead at Auro AI was ending and I was starting as AI Engineer at Inditex. It is a local-model variant of my earlier jev-decision-gate, swapping the hosted decision API for a model served on my own machine, and it keeps the CI, tests and security docs of my current standard.
+
 [![CI](https://github.com/iDiagoValeta/ollaya-decision-gate/actions/workflows/ci.yml/badge.svg)](https://github.com/iDiagoValeta/ollaya-decision-gate/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](pyproject.toml)
